@@ -13,7 +13,7 @@ const ADMIN_EMAILS = [
   "contato@ceafonso.com.br",
 ];
 
-const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwHPwrYO9sdrTBLK32BNR32F288O5BM_tv2rpzKtH2l7Mp6Fr2cBivN8WtWCoXuIOLfFw/exec";
+const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwqXS_Ejx9gF2VpOnN4T43kpl1FpvVLF4IVH2cbq9xPx1DV6gBIjeLnDc4Gyf7mOxAj6w/exec";
 
 export default function Config() {
   // Invite state
