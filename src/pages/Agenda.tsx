@@ -21,7 +21,7 @@ export default function Agenda() {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [show, setShow] = useState(false);
-  const [form, setForm] = useState({ title: "", description: "", event_date: todayISO(), event_time: "" });
+  const [form, setForm] = useState<{ id?: string; title: string; description: string; event_date: string; event_time: string }>({ title: "", description: "", event_date: todayISO(), event_time: "" });
 
   async function load() {
     if (!user) return;
@@ -36,15 +36,27 @@ export default function Agenda() {
 
   async function add() {
     if (!user || !form.title) return;
-    const { error } = await supabase.from("calendar_events").insert({
-      user_id: user.id,
-      title: form.title,
-      description: form.description || null,
-      event_date: form.event_date,
-      event_time: form.event_time || null,
-      type: "reminder",
-    });
-    if (error) return toast.error(error.message);
+    
+    if (form.id) {
+      const { error } = await supabase.from("calendar_events").update({
+        title: form.title,
+        description: form.description || null,
+        event_date: form.event_date,
+        event_time: form.event_time || null,
+      }).eq("id", form.id);
+      if (error) return toast.error(error.message);
+    } else {
+      const { error } = await supabase.from("calendar_events").insert({
+        user_id: user.id,
+        title: form.title,
+        description: form.description || null,
+        event_date: form.event_date,
+        event_time: form.event_time || null,
+        type: "reminder",
+      });
+      if (error) return toast.error(error.message);
+    }
+    
     setForm({ title: "", description: "", event_date: todayISO(), event_time: "" });
     setShow(false);
     load();
@@ -83,13 +95,16 @@ export default function Agenda() {
 
       <Navigator cursor={cursor} setCursor={setCursor} view={view} />
 
-      <CalendarView view={view} cursor={cursor} events={events} holidays={holidays} onRemove={remove} />
+      <CalendarView view={view} cursor={cursor} events={events} holidays={holidays} onRemove={remove} onEdit={(e) => {
+        setForm({ id: e.id, title: e.title, description: e.description || "", event_date: e.event_date, event_time: e.event_time || "" });
+        setShow(true);
+      }} />
 
       {show && (
-        <div className="fixed inset-0 bg-black/50 z-50 grid place-items-center p-4" onClick={() => setShow(false)}>
+        <div className="fixed inset-0 bg-black/50 z-50 grid place-items-center p-4" onClick={() => { setShow(false); setForm({ title: "", description: "", event_date: todayISO(), event_time: "" }); }}>
           <Card className="max-w-md w-full" onClick={(e) => e.stopPropagation()}>
             <CardContent className="pt-6 space-y-3">
-              <h3 className="font-semibold">Novo lembrete</h3>
+              <h3 className="font-semibold">{form.id ? "Editar lembrete" : "Novo lembrete"}</h3>
               <Input placeholder="Título" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
               <Textarea placeholder="Descrição" rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
               <div className="grid grid-cols-2 gap-2">
@@ -102,9 +117,16 @@ export default function Agenda() {
                   <Input type="time" value={form.event_time} onChange={(e) => setForm({ ...form, event_time: e.target.value })} />
                 </div>
               </div>
-              <div className="flex gap-2 justify-end">
-                <Button variant="ghost" onClick={() => setShow(false)}>Cancelar</Button>
-                <Button onClick={add}>Adicionar</Button>
+              <div className="flex justify-between items-center mt-4">
+                {form.id ? (
+                  <Button variant="destructive" size="icon" onClick={() => { remove(form.id!); setShow(false); setForm({ title: "", description: "", event_date: todayISO(), event_time: "" }); }}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                ) : <div />}
+                <div className="flex gap-2">
+                  <Button variant="ghost" onClick={() => { setShow(false); setForm({ title: "", description: "", event_date: todayISO(), event_time: "" }); }}>Cancelar</Button>
+                  <Button onClick={add}>{form.id ? "Salvar" : "Adicionar"}</Button>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -136,13 +158,13 @@ function Navigator({ cursor, setCursor, view }: { cursor: Date; setCursor: (d: D
 }
 
 function CalendarView({
-  view, cursor, events, holidays, onRemove,
-}: { view: View; cursor: Date; events: CalendarEvent[]; holidays: Holiday[]; onRemove: (id: string) => void }) {
-  if (view === "month") return <MonthView cursor={cursor} events={events} holidays={holidays} onRemove={onRemove} />;
-  if (view === "week") return <ListView range={getWeekRange(cursor)} events={events} holidays={holidays} onRemove={onRemove} />;
+  view, cursor, events, holidays, onRemove, onEdit
+}: { view: View; cursor: Date; events: CalendarEvent[]; holidays: Holiday[]; onRemove: (id: string) => void; onEdit: (e: CalendarEvent) => void }) {
+  if (view === "month") return <MonthView cursor={cursor} events={events} holidays={holidays} onRemove={onRemove} onEdit={onEdit} />;
+  if (view === "week") return <ListView range={getWeekRange(cursor)} events={events} holidays={holidays} onRemove={onRemove} onEdit={onEdit} />;
   if (view === "day") {
     const d = cursor.toISOString().slice(0, 10);
-    return <ListView range={[d, d]} events={events} holidays={holidays} onRemove={onRemove} />;
+    return <ListView range={[d, d]} events={events} holidays={holidays} onRemove={onRemove} onEdit={onEdit} />;
   }
   return <YearView cursor={cursor} events={events} holidays={holidays} />;
 }
@@ -155,7 +177,7 @@ function getWeekRange(d: Date): [string, string] {
   return [start.toISOString().slice(0, 10), end.toISOString().slice(0, 10)];
 }
 
-function MonthView({ cursor, events, holidays, onRemove }: any) {
+function MonthView({ cursor, events, holidays, onRemove, onEdit }: any) {
   const year = cursor.getFullYear(), month = cursor.getMonth();
   const first = new Date(year, month, 1);
   const startOffset = first.getDay();
@@ -185,7 +207,7 @@ function MonthView({ cursor, events, holidays, onRemove }: any) {
                 </div>
                 {holiday && <div className="text-[10px] text-warning truncate">🏖 {holiday.name}</div>}
                 {dayEvents.slice(0, 3).map((e: CalendarEvent) => (
-                  <div key={e.id} className="text-[10px] truncate bg-primary text-primary-foreground rounded px-1 mt-0.5">
+                  <div key={e.id} onClick={() => onEdit(e)} className="text-[10px] truncate bg-primary text-primary-foreground rounded px-1 mt-0.5 cursor-pointer hover:bg-primary/80 transition-colors">
                     {e.event_time ? `${e.event_time.slice(0, 5)} ` : ""}{e.title}
                   </div>
                 ))}
@@ -199,7 +221,7 @@ function MonthView({ cursor, events, holidays, onRemove }: any) {
   );
 }
 
-function ListView({ range, events, holidays, onRemove }: { range: [string, string]; events: CalendarEvent[]; holidays: Holiday[]; onRemove: (id: string) => void }) {
+function ListView({ range, events, holidays, onRemove, onEdit }: { range: [string, string]; events: CalendarEvent[]; holidays: Holiday[]; onRemove: (id: string) => void; onEdit: (e: CalendarEvent) => void }) {
   const filtered = events.filter((e) => e.event_date >= range[0] && e.event_date <= range[1]);
   const hols = holidays.filter((h) => h.date >= range[0] && h.date <= range[1]);
   return (
@@ -215,8 +237,8 @@ function ListView({ range, events, holidays, onRemove }: { range: [string, strin
           <p className="text-sm text-muted-foreground">Nenhum evento neste período.</p>
         )}
         {filtered.map((e) => (
-          <div key={e.id} className="flex items-center justify-between gap-2 border-b border-border pb-2 last:border-0">
-            <div>
+          <div key={e.id} className="flex items-center justify-between gap-2 border-b border-border pb-2 last:border-0 group">
+            <div className="flex-1 cursor-pointer hover:bg-accent/30 p-1 -ml-1 rounded transition-colors" onClick={() => onEdit(e)}>
               <div className="font-medium text-sm">{e.title}</div>
               <div className="text-xs text-muted-foreground">
                 {new Date(e.event_date).toLocaleDateString("pt-BR")}
@@ -224,7 +246,7 @@ function ListView({ range, events, holidays, onRemove }: { range: [string, strin
                 {e.description && ` · ${e.description}`}
               </div>
             </div>
-            <Button size="icon" variant="ghost" onClick={() => onRemove(e.id)}><Trash2 className="h-4 w-4" /></Button>
+            <Button size="icon" variant="ghost" className="opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => onRemove(e.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
           </div>
         ))}
       </CardContent>

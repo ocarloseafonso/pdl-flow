@@ -248,16 +248,20 @@ export default function ClientDetail() {
         {/* RESUMO */}
         <TabsContent value="resumo" className="space-y-4 mt-4">
           <Card>
-            <CardHeader><CardTitle className="text-base">Dados básicos</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="text-base">Respostas do Briefing (Google Sheets)</CardTitle></CardHeader>
             <CardContent className="grid sm:grid-cols-2 gap-4 text-sm">
-              <Field label="Nome do responsável" value={b.responsible_name || b.full_name} />
-              <Field label="Cidade / Estado" value={b.city_state} />
-              <Field label="Telefone" value={b.phone} />
-              <Field label="E-mail" value={b.email} />
-              <Field label="Bairros atendidos" value={b.areas} />
-              <Field label="Horário" value={b.hours} />
-              <Field label="Briefing recebido" value={formatDate(client.briefing_submitted_at)} />
-              <Field label="Status" value={client.status} />
+              <Field label="Status do Cliente" value={client.status} />
+              <Field label="Última atualização do briefing" value={formatDate(client.briefing_submitted_at)} />
+              
+              {Object.keys(b).length > 0 ? (
+                Object.entries(b).map(([key, value]) => (
+                  <Field key={key} label={key} value={String(value)} />
+                ))
+              ) : (
+                <div className="col-span-2 text-muted-foreground text-xs italic py-4">
+                  Nenhuma resposta sincronizada ainda.
+                </div>
+              )}
             </CardContent>
           </Card>
 
