@@ -23,6 +23,10 @@ export type Client = {
   site_generated: boolean;
   notes: string | null;
   status: string;
+  contract_start_date: string | null;
+  deadline_days: number;
+  contract_value: number | null;
+  contract_type: string | null; // 'monthly' | 'one_time' | null
   created_at: string;
   updated_at: string;
 };
@@ -130,5 +134,6 @@ export const PHASE_NAMES: Record<number, string> = {
   4: "Otimização + Site",
   5: "Citações",
   6: "Reputação",
-  7: "Manutenção",
+  7: "Entrega do Projeto",
+  8: "Manutenção",
 };

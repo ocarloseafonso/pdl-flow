@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Copy, CheckCircle2, Circle, ChevronRight, RefreshCw, ExternalLink } from "lucide-react";
+import { ArrowLeft, Copy, CheckCircle2, Circle, ChevronRight, RefreshCw, ExternalLink, Clock, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { daysBetween, formatDate } from "@/lib/dates";
 import { ClientSiteBlog } from "@/components/ClientSiteBlog";
@@ -73,6 +73,20 @@ export default function ClientDetail() {
     if (error) toast.error(error.message);
   }
 
+  async function saveField(field: string, value: any) {
+    const { error } = await supabase.from("clients").update({ [field]: value }).eq("id", client!.id);
+    if (error) toast.error(error.message);
+    else toast.success("Salvo!");
+  }
+
+  // Deadline calculations
+  const deadlineDays = client.deadline_days || 30;
+  const startDate = client.contract_start_date || client.created_at;
+  const elapsedDays = daysBetween(startDate);
+  const remainingDays = Math.max(0, deadlineDays - elapsedDays);
+  const deadlinePct = Math.min(100, Math.round((elapsedDays / deadlineDays) * 100));
+  const deadlineStatus = deadlinePct >= 100 ? "late" : deadlinePct >= 80 ? "warn" : "ok";
+
   async function advancePhase() {
     if (!currentPhase) return;
     const nextPhase = phases.find((p) => p.position === currentPhase.position + 1);
@@ -115,6 +129,31 @@ export default function ClientDetail() {
         </div>
       </div>
 
+      {/* Deadline bar */}
+      <Card className="bg-accent/20 border-accent">
+        <CardContent className="py-3 flex items-center gap-4">
+          {deadlineStatus === "late" ? (
+            <AlertTriangle className="h-5 w-5 text-destructive shrink-0" />
+          ) : (
+            <Clock className="h-5 w-5 text-muted-foreground shrink-0" />
+          )}
+          <div className="flex-1">
+            <div className="flex justify-between text-sm mb-1">
+              <span className={deadlineStatus === "late" ? "text-destructive font-semibold" : deadlineStatus === "warn" ? "text-warning font-medium" : ""}>
+                {remainingDays > 0 ? `${remainingDays} dias restantes` : "Prazo expirado!"}
+              </span>
+              <span className="text-muted-foreground text-xs">{elapsedDays} de {deadlineDays} dias</span>
+            </div>
+            <div className="h-2 rounded-full bg-secondary overflow-hidden">
+              <div className={`h-full rounded-full transition-all ${deadlineStatus === "late" ? "bg-destructive" : deadlineStatus === "warn" ? "bg-warning" : "bg-primary"}`} style={{ width: `${deadlinePct}%` }} />
+            </div>
+          </div>
+          <div className="text-xs text-muted-foreground shrink-0">
+            Início: {formatDate(startDate)}
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Default to checklist tab */}
       <Tabs defaultValue="checklist">
         <TabsList>
@@ -123,6 +162,7 @@ export default function ClientDetail() {
           <TabsTrigger value="todas">Todas as fases</TabsTrigger>
           <TabsTrigger value="site">Site & Blog</TabsTrigger>
           <TabsTrigger value="agenda">Agenda</TabsTrigger>
+          <TabsTrigger value="contrato">📋 Contrato</TabsTrigger>
           <TabsTrigger value="briefing">Observações</TabsTrigger>
         </TabsList>
 
@@ -160,13 +200,18 @@ export default function ClientDetail() {
                     ⏳ Pendentes ({pendingTasks.length})
                   </div>
                   {pendingTasks.map((t) => (
-                    <label key={t.id} className="flex items-start gap-3 py-2 px-2 rounded-md hover:bg-accent/50 cursor-pointer transition-colors">
-                      <Checkbox checked={false} onCheckedChange={() => toggleTask(t)} className="mt-0.5" />
-                      <div>
-                        <span className="text-sm font-medium">{t.title}</span>
+                    <div key={t.id} className="flex items-start gap-3 py-2 px-2 rounded-md hover:bg-accent/50 transition-colors">
+                      <Checkbox checked={false} onCheckedChange={() => toggleTask(t)} className="mt-0.5 cursor-pointer" />
+                      <div className="flex-1">
+                        <Link
+                          to={`/guia?fase=${t.phase_id}`}
+                          className="text-sm font-medium hover:text-primary transition-colors cursor-pointer"
+                        >
+                          {t.title}
+                        </Link>
                         {t.description && <p className="text-xs text-muted-foreground mt-0.5">{t.description}</p>}
                       </div>
-                    </label>
+                    </div>
                   ))}
                 </div>
               )}
@@ -325,6 +370,95 @@ export default function ClientDetail() {
                 placeholder="Escreva aqui anotações importantes, decisões ou histórico do cliente. O texto é salvo automaticamente ao clicar fora da caixa."
                 rows={12}
               />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* CONTRATO */}
+        <TabsContent value="contrato" className="mt-4 space-y-4">
+          <Card>
+            <CardHeader><CardTitle className="text-base">Dados do contrato</CardTitle></CardHeader>
+            <CardContent className="grid sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Data de fechamento</Label>
+                <Input
+                  type="date"
+                  value={client.contract_start_date?.slice(0, 10) || ""}
+                  onChange={(e) => {
+                    const val = e.target.value || null;
+                    setClient({ ...client, contract_start_date: val });
+                    saveField("contract_start_date", val);
+                  }}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Prazo (dias)</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={client.deadline_days || 30}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value) || 30;
+                    setClient({ ...client, deadline_days: val });
+                  }}
+                  onBlur={() => saveField("deadline_days", client.deadline_days || 30)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Valor do contrato (R$)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  placeholder="Ex: 1500.00"
+                  value={client.contract_value ?? ""}
+                  onChange={(e) => {
+                    const val = e.target.value ? parseFloat(e.target.value) : null;
+                    setClient({ ...client, contract_value: val });
+                  }}
+                  onBlur={() => saveField("contract_value", client.contract_value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Tipo de cobrança</Label>
+                <select
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={client.contract_type || ""}
+                  onChange={(e) => {
+                    const val = e.target.value || null;
+                    setClient({ ...client, contract_type: val });
+                    saveField("contract_type", val);
+                  }}
+                >
+                  <option value="">Selecionar...</option>
+                  <option value="one_time">Pagamento único</option>
+                  <option value="monthly">Mensal (recorrente)</option>
+                </select>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Resumo visual do prazo */}
+          <Card>
+            <CardHeader><CardTitle className="text-base">Resumo do prazo</CardTitle></CardHeader>
+            <CardContent className="space-y-3">
+              <div className="grid grid-cols-3 gap-4 text-center">
+                <div>
+                  <div className="text-2xl font-bold">{elapsedDays}</div>
+                  <div className="text-xs text-muted-foreground">Dias corridos</div>
+                </div>
+                <div>
+                  <div className={`text-2xl font-bold ${deadlineStatus === "late" ? "text-destructive" : deadlineStatus === "warn" ? "text-warning" : "text-success"}`}>{remainingDays}</div>
+                  <div className="text-xs text-muted-foreground">Dias restantes</div>
+                </div>
+                <div>
+                  <div className="text-2xl font-bold">{deadlineDays}</div>
+                  <div className="text-xs text-muted-foreground">Prazo total</div>
+                </div>
+              </div>
+              <div className="h-3 rounded-full bg-secondary overflow-hidden">
+                <div className={`h-full rounded-full transition-all ${deadlineStatus === "late" ? "bg-destructive" : deadlineStatus === "warn" ? "bg-warning" : "bg-primary"}`} style={{ width: `${deadlinePct}%` }} />
+              </div>
             </CardContent>
           </Card>
         </TabsContent>

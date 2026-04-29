@@ -35,11 +35,13 @@ export function NewClientDialog({
   const [name, setName] = useState("");
   const [company, setCompany] = useState("");
   const [segment, setSegment] = useState("");
+  const [contractDate, setContractDate] = useState(new Date().toISOString().slice(0, 10));
+  const [deadlineDays, setDeadlineDays] = useState(30);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ token: string; code: string } | null>(null);
 
   function reset() {
-    setName(""); setCompany(""); setSegment(""); setResult(null);
+    setName(""); setCompany(""); setSegment(""); setResult(null); setContractDate(new Date().toISOString().slice(0, 10)); setDeadlineDays(30);
   }
 
   function regenCode() {
@@ -64,6 +66,8 @@ export function NewClientDialog({
           company_name: company || null,
           segment: segment || null,
           briefing_token: code,
+          contract_start_date: contractDate || null,
+          deadline_days: deadlineDays,
         });
       if (error) throw error;
       setResult({ token: code, code });
@@ -158,6 +162,16 @@ export function NewClientDialog({
             <div className="space-y-2">
               <Label htmlFor="nc-segment">Segmento / nicho</Label>
               <Input id="nc-segment" value={segment} onChange={(e) => setSegment(e.target.value)} placeholder="Ex: salão de beleza, clínica..." />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="nc-date">Data de fechamento</Label>
+                <Input id="nc-date" type="date" value={contractDate} onChange={(e) => setContractDate(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="nc-deadline">Prazo (dias)</Label>
+                <Input id="nc-deadline" type="number" min={1} value={deadlineDays} onChange={(e) => setDeadlineDays(parseInt(e.target.value) || 30)} />
+              </div>
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>

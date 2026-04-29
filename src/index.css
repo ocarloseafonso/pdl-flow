@@ -48,7 +48,7 @@
 
     --radius: 0.65rem;
 
-    /* Cores das 7 fases (badges no kanban) */
+    /* Cores das 8 fases (badges no kanban) */
     --phase-1: 220 75% 55%;
     --phase-2: 250 70% 55%;
     --phase-3: 280 65% 55%;
@@ -56,6 +56,7 @@
     --phase-5: 15 80% 55%;
     --phase-6: 40 85% 50%;
     --phase-7: 158 65% 40%;
+    --phase-8: 195 70% 45%;
 
     --sidebar-background: 0 0% 100%;
     --sidebar-foreground: 222 25% 25%;

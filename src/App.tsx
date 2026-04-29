@@ -12,6 +12,7 @@ import ClientDetail from "./pages/ClientDetail";
 import Agenda from "./pages/Agenda";
 import Prompts from "./pages/Prompts";
 import Config from "./pages/Config";
+import GuiaExecucao from "./pages/GuiaExecucao";
 import Briefing from "./pages/Briefing";
 import NotFound from "./pages/NotFound";
 
@@ -33,6 +34,7 @@ const App = () => (
               <Route path="/clientes/:id" element={<ClientDetail />} />
               <Route path="/agenda" element={<Agenda />} />
               <Route path="/prompts" element={<Prompts />} />
+              <Route path="/guia" element={<GuiaExecucao />} />
               <Route path="/config" element={<Config />} />
             </Route>
             <Route path="*" element={<NotFound />} />

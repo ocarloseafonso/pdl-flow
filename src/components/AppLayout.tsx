@@ -2,7 +2,7 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { LayoutDashboard, KanbanSquare, Calendar, Settings2, LogOut, FileText } from "lucide-react";
+import { LayoutDashboard, KanbanSquare, Calendar, Settings2, LogOut, FileText, BookOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useEffect } from "react";
 import { TodayReminderBanner } from "./TodayReminderBanner";
@@ -11,6 +11,7 @@ const items = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
   { to: "/clientes", label: "Clientes (Kanban)", icon: KanbanSquare },
   { to: "/agenda", label: "Agenda", icon: Calendar },
+  { to: "/guia", label: "Guia de Execução", icon: BookOpen },
   { to: "/prompts", label: "Prompts & Templates", icon: FileText },
   { to: "/config", label: "Configurações", icon: Settings2 },
 ];
@@ -30,9 +31,12 @@ export function AppLayout() {
   return (
     <div className="min-h-screen flex bg-background">
       <aside className="w-60 shrink-0 border-r border-sidebar-border bg-sidebar flex flex-col">
-        <div className="px-5 py-5 border-b border-sidebar-border">
-          <div className="text-lg font-bold tracking-tight text-sidebar-foreground">PDL Operacional</div>
-          <div className="text-xs text-muted-foreground">Painel de execução</div>
+        <div className="px-4 py-4 border-b border-sidebar-border flex items-center gap-3">
+          <img src="/logo-ceafonso.png" alt="C.E. Afonso" className="h-8 w-8 rounded-md object-contain" />
+          <div className="min-w-0">
+            <div className="text-sm font-bold tracking-tight text-sidebar-foreground truncate">C.E. Afonso</div>
+            <div className="text-[10px] text-muted-foreground">Soluções Digitais</div>
+          </div>
         </div>
         <nav className="flex-1 p-2 space-y-1">
           {items.map((it) => (
@@ -55,7 +59,10 @@ export function AppLayout() {
           ))}
         </nav>
         <div className="p-3 border-t border-sidebar-border">
-          <div className="text-xs text-muted-foreground mb-2 truncate">{user.email}</div>
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-xs text-muted-foreground truncate">{user.email}</div>
+            <span className="text-[9px] text-muted-foreground/50 font-mono">v1.0</span>
+          </div>
           <Button
             variant="ghost"
             size="sm"
