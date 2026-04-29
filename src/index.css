@@ -1,0 +1,116 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* PDL Operacional — design system
+   Tema: claro, técnico, profissional. Indigo como primária, verde-azulado para sucesso,
+   âmbar para atrasos. Tudo em HSL.
+*/
+
+@layer base {
+  :root {
+    --background: 220 25% 98%;
+    --foreground: 222 30% 12%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 30% 12%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 30% 12%;
+
+    --primary: 235 75% 55%;
+    --primary-foreground: 0 0% 100%;
+    --primary-soft: 235 80% 96%;
+
+    --secondary: 220 20% 95%;
+    --secondary-foreground: 222 30% 18%;
+
+    --muted: 220 20% 95%;
+    --muted-foreground: 220 12% 45%;
+
+    --accent: 235 75% 96%;
+    --accent-foreground: 235 75% 35%;
+
+    --destructive: 0 75% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 158 65% 40%;
+    --success-foreground: 0 0% 100%;
+    --success-soft: 158 70% 94%;
+
+    --warning: 35 95% 55%;
+    --warning-foreground: 0 0% 100%;
+    --warning-soft: 35 95% 94%;
+
+    --border: 220 18% 90%;
+    --input: 220 18% 90%;
+    --ring: 235 75% 55%;
+
+    --radius: 0.65rem;
+
+    /* Cores das 7 fases (badges no kanban) */
+    --phase-1: 220 75% 55%;
+    --phase-2: 250 70% 55%;
+    --phase-3: 280 65% 55%;
+    --phase-4: 320 65% 55%;
+    --phase-5: 15 80% 55%;
+    --phase-6: 40 85% 50%;
+    --phase-7: 158 65% 40%;
+
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 222 25% 25%;
+    --sidebar-primary: 235 75% 55%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 235 75% 96%;
+    --sidebar-accent-foreground: 235 75% 35%;
+    --sidebar-border: 220 18% 92%;
+    --sidebar-ring: 235 75% 55%;
+  }
+
+  .dark {
+    --background: 222 30% 8%;
+    --foreground: 220 15% 92%;
+    --card: 222 28% 11%;
+    --card-foreground: 220 15% 92%;
+    --popover: 222 28% 11%;
+    --popover-foreground: 220 15% 92%;
+    --primary: 235 80% 65%;
+    --primary-foreground: 222 30% 8%;
+    --primary-soft: 235 50% 18%;
+    --secondary: 222 25% 16%;
+    --secondary-foreground: 220 15% 92%;
+    --muted: 222 25% 16%;
+    --muted-foreground: 220 12% 65%;
+    --accent: 235 50% 20%;
+    --accent-foreground: 220 15% 92%;
+    --destructive: 0 70% 55%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 158 60% 50%;
+    --success-foreground: 222 30% 8%;
+    --success-soft: 158 50% 18%;
+    --warning: 35 90% 60%;
+    --warning-foreground: 222 30% 8%;
+    --warning-soft: 35 50% 20%;
+    --border: 222 25% 18%;
+    --input: 222 25% 18%;
+    --ring: 235 80% 65%;
+    --sidebar-background: 222 28% 11%;
+    --sidebar-foreground: 220 15% 85%;
+    --sidebar-primary: 235 80% 65%;
+    --sidebar-primary-foreground: 222 30% 8%;
+    --sidebar-accent: 222 25% 16%;
+    --sidebar-accent-foreground: 220 15% 92%;
+    --sidebar-border: 222 25% 18%;
+    --sidebar-ring: 235 80% 65%;
+  }
+}
+
+@layer base {
+  * { @apply border-border; }
+  body { @apply bg-background text-foreground antialiased; font-feature-settings: "cv11", "ss01"; }
+  h1, h2, h3, h4 { @apply tracking-tight; }
+}
+
+@layer components {
+  .phase-dot { @apply inline-block w-2 h-2 rounded-full; }
+}
