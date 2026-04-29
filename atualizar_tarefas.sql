@@ -1,70 +1,19 @@
--- LIMPEZA INICIAL PARA EVITAR ERROS DE DUPLICIDADE
-DROP TABLE IF EXISTS public.blog_articles CASCADE;
-DROP TABLE IF EXISTS public.calendar_events CASCADE;
-DROP TABLE IF EXISTS public.client_tasks CASCADE;
-DROP TABLE IF EXISTS public.clients CASCADE;
-DROP TABLE IF EXISTS public.holidays_br CASCADE;
-DROP TABLE IF EXISTS public.phases CASCADE;
-DROP TABLE IF EXISTS public.prompt_templates CASCADE;
-DROP TABLE IF EXISTS public.task_templates CASCADE;
-DROP FUNCTION IF EXISTS public.create_tasks_for_new_client CASCADE;
-DROP FUNCTION IF EXISTS public.set_updated_at CASCADE;
-DROP FUNCTION IF EXISTS public.submit_briefing CASCADE;
-DROP FUNCTION IF EXISTS public.get_briefing_client CASCADE;
+-- ==============================================================================
+-- SCRIPT DE ATUALIZAÇÃO DAS TAREFAS DO KANBAN (PDL FLOW)
+-- ==============================================================================
+-- Instruções:
+-- 1. Abra o Supabase do seu projeto.
+-- 2. Vá em "SQL Editor" no menu lateral esquerdo.
+-- 3. Clique em "New query".
+-- 4. Cole todo este código lá dentro e clique em "RUN".
+-- ==============================================================================
 
--- ============ PHASES (catálogo das 7 fases do PDL) ============
-CREATE TABLE public.phases (
-  id INT PRIMARY KEY,
-  name TEXT NOT NULL,
-  description TEXT,
-  position INT NOT NULL,
-  expected_days INT NOT NULL DEFAULT 3
-);
+-- 1. Apaga os templates antigos
+DELETE FROM public.task_templates;
 
-INSERT INTO public.phases (id, name, description, position, expected_days) VALUES
-(1, 'Onboarding', 'Coleta de todos os dados do cliente antes de qualquer ação', 1, 4),
-(2, 'Criação do Perfil', 'Criação ou reivindicação do perfil no Google Business Profile', 2, 1),
-(3, 'Verificação', 'Gravação e envio do vídeo de verificação ao Google', 3, 7),
-(4, 'Otimização + Site', 'Otimização do perfil + criação do site e blog do cliente', 4, 5),
-(5, 'Citações e Diretórios', 'Cadastro em diretórios locais para fortalecer autoridade', 5, 7),
-(6, 'Reputação e Engajamento', 'Estratégia de avaliações, Q&A e postagens semanais', 6, 7),
-(7, 'Manutenção Contínua', 'Monitoramento, rastreamento e ajustes mensais', 7, 30);
-
--- ============ CLIENTS ============
-CREATE TABLE public.clients (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL,
-  name TEXT NOT NULL,
-  company_name TEXT,
-  segment TEXT,
-  current_phase_id INT NOT NULL DEFAULT 1 REFERENCES public.phases(id),
-  phase_started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  briefing_token TEXT UNIQUE NOT NULL DEFAULT replace(gen_random_uuid()::text, '-', ''),
-  briefing_submitted_at TIMESTAMPTZ,
-  briefing_data JSONB DEFAULT '{}'::jsonb,
-  brand_colors TEXT,
-  brand_notes TEXT,
-  site_url TEXT,
-  site_generated BOOLEAN NOT NULL DEFAULT false,
-  notes TEXT,
-  status TEXT NOT NULL DEFAULT 'active',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE INDEX idx_clients_user ON public.clients(user_id);
-CREATE INDEX idx_clients_phase ON public.clients(current_phase_id);
-
--- ============ TASK TEMPLATES (checklist padrão por fase) ============
-CREATE TABLE public.task_templates (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  phase_id INT NOT NULL REFERENCES public.phases(id),
-  title TEXT NOT NULL,
-  description TEXT,
-  position INT NOT NULL DEFAULT 0
-);
-
+-- 2. Insere os novos templates detalhados
 INSERT INTO public.task_templates (phase_id, title, position) VALUES
+-- FASE 1: ONBOARDING
 (1, 'Enviar formulário de briefing ao cliente', 1),
 (1, 'Aguardar formulário 100% preenchido — não avançar com campos em branco', 2),
 (1, 'Confirmar nome comercial exato (igual à fachada, CNPJ e papelaria — sem siglas)', 3),
@@ -186,151 +135,3 @@ INSERT INTO public.task_templates (phase_id, title, position) VALUES
 (7, 'Responder novas avaliações em até 24h', 4),
 (7, 'Publicar nova postagem semanal no perfil', 5),
 (7, 'Gerar relatório mensal para o cliente com evolução das métricas', 6);
-
--- ============ CLIENT TASKS (tarefas reais por cliente) ============
-CREATE TABLE public.client_tasks (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  client_id UUID NOT NULL REFERENCES public.clients(id) ON DELETE CASCADE,
-  phase_id INT NOT NULL REFERENCES public.phases(id),
-  title TEXT NOT NULL,
-  description TEXT,
-  position INT NOT NULL DEFAULT 0,
-  completed BOOLEAN NOT NULL DEFAULT false,
-  completed_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE INDEX idx_client_tasks_client ON public.client_tasks(client_id);
-CREATE INDEX idx_client_tasks_phase ON public.client_tasks(client_id, phase_id);
-
--- ============ BLOG ARTICLES ============
-CREATE TABLE public.blog_articles (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  client_id UUID NOT NULL REFERENCES public.clients(id) ON DELETE CASCADE,
-  position INT NOT NULL DEFAULT 0,
-  title TEXT NOT NULL,
-  keyword TEXT,
-  intent TEXT,
-  format TEXT,
-  priority INT,
-  status TEXT NOT NULL DEFAULT 'todo',
-  content TEXT,
-  published_url TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE INDEX idx_articles_client ON public.blog_articles(client_id);
-
--- ============ CALENDAR EVENTS ============
-CREATE TABLE public.calendar_events (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL,
-  client_id UUID REFERENCES public.clients(id) ON DELETE CASCADE,
-  title TEXT NOT NULL,
-  description TEXT,
-  event_date DATE NOT NULL,
-  event_time TIME,
-  type TEXT NOT NULL DEFAULT 'reminder',
-  done BOOLEAN NOT NULL DEFAULT false,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE INDEX idx_events_user_date ON public.calendar_events(user_id, event_date);
-CREATE INDEX idx_events_client ON public.calendar_events(client_id);
-
--- ============ PROMPT TEMPLATES ============
-CREATE TABLE public.prompt_templates (
-  id TEXT PRIMARY KEY,
-  user_id UUID,
-  title TEXT NOT NULL,
-  content TEXT NOT NULL,
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
--- ============ HOLIDAYS BR ============
-CREATE TABLE public.holidays_br (
-  id SERIAL PRIMARY KEY,
-  date DATE NOT NULL,
-  name TEXT NOT NULL,
-  UNIQUE(date)
-);
-
-INSERT INTO public.holidays_br (date, name) VALUES
-('2026-01-01', 'Confraternização Universal'),
-('2026-04-03', 'Sexta-feira Santa'),
-('2026-04-21', 'Tiradentes'),
-('2026-05-01', 'Dia do Trabalho'),
-('2026-09-07', 'Independência do Brasil'),
-('2026-10-12', 'Nossa Senhora Aparecida'),
-('2026-11-02', 'Finados'),
-('2026-11-15', 'Proclamação da República'),
-('2026-11-20', 'Dia da Consciência Negra'),
-('2026-12-25', 'Natal');
-
--- ============ RLS (DESATIVADO PARA FACILITAR USO LOCAL) ============
--- Permitir todas as operações para todos (anon e autenticados) para facilitar uso sem login
-ALTER TABLE public.clients ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "permissive" ON public.clients FOR ALL USING (true) WITH CHECK (true);
-
-ALTER TABLE public.client_tasks ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "permissive" ON public.client_tasks FOR ALL USING (true) WITH CHECK (true);
-
-ALTER TABLE public.blog_articles ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "permissive" ON public.blog_articles FOR ALL USING (true) WITH CHECK (true);
-
-ALTER TABLE public.calendar_events ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "permissive" ON public.calendar_events FOR ALL USING (true) WITH CHECK (true);
-
-ALTER TABLE public.prompt_templates ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "permissive" ON public.prompt_templates FOR ALL USING (true) WITH CHECK (true);
-
-ALTER TABLE public.phases ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "permissive" ON public.phases FOR ALL USING (true) WITH CHECK (true);
-
-ALTER TABLE public.task_templates ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "permissive" ON public.task_templates FOR ALL USING (true) WITH CHECK (true);
-
-ALTER TABLE public.holidays_br ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "permissive" ON public.holidays_br FOR ALL USING (true) WITH CHECK (true);
-
--- ============ FUNCTIONS ============
-CREATE OR REPLACE FUNCTION public.create_tasks_for_new_client()
-RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
-BEGIN
-  INSERT INTO public.client_tasks (client_id, phase_id, title, description, position)
-  SELECT NEW.id, t.phase_id, t.title, t.description, t.position FROM public.task_templates t;
-  RETURN NEW;
-END;
-$$;
-
-CREATE TRIGGER on_client_created_create_tasks AFTER INSERT ON public.clients FOR EACH ROW EXECUTE FUNCTION public.create_tasks_for_new_client();
-
-CREATE OR REPLACE FUNCTION public.set_updated_at()
-RETURNS TRIGGER LANGUAGE plpgsql SET search_path = public AS $$
-BEGIN NEW.updated_at = now(); RETURN NEW; END;
-$$;
-
-CREATE TRIGGER clients_set_updated_at BEFORE UPDATE ON public.clients FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
-
-CREATE OR REPLACE FUNCTION public.submit_briefing(_token TEXT, _data JSONB)
-RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
-DECLARE _client_id UUID;
-BEGIN
-  SELECT id INTO _client_id FROM public.clients WHERE briefing_token = _token;
-  IF _client_id IS NULL THEN RETURN false; END IF;
-  UPDATE public.clients SET briefing_data = _data, briefing_submitted_at = now() WHERE id = _client_id;
-  RETURN true;
-END;
-$$;
-
-GRANT EXECUTE ON FUNCTION public.submit_briefing(TEXT, JSONB) TO anon, authenticated;
-
-CREATE OR REPLACE FUNCTION public.get_briefing_client(_token TEXT)
-RETURNS TABLE(name TEXT, company_name TEXT, briefing_submitted_at TIMESTAMPTZ)
-LANGUAGE plpgsql SECURITY DEFINER STABLE SET search_path = public AS $$
-BEGIN
-  RETURN QUERY SELECT c.name, c.company_name, c.briefing_submitted_at FROM public.clients c WHERE c.briefing_token = _token;
-END;
-$$;
-
-GRANT EXECUTE ON FUNCTION public.get_briefing_client(TEXT) TO anon, authenticated;
