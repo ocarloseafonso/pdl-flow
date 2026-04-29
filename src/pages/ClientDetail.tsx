@@ -119,11 +119,11 @@ export default function ClientDetail() {
       <Tabs defaultValue="checklist">
         <TabsList>
           <TabsTrigger value="checklist">✅ Checklist da fase</TabsTrigger>
-          <TabsTrigger value="resumo">Resumo</TabsTrigger>
+          <TabsTrigger value="resumo">Briefing</TabsTrigger>
           <TabsTrigger value="todas">Todas as fases</TabsTrigger>
           <TabsTrigger value="site">Site & Blog</TabsTrigger>
           <TabsTrigger value="agenda">Agenda</TabsTrigger>
-          <TabsTrigger value="briefing">Briefing</TabsTrigger>
+          <TabsTrigger value="briefing">Observações</TabsTrigger>
         </TabsList>
 
         {/* CHECKLIST — now is the default and more prominent */}
@@ -304,19 +304,6 @@ export default function ClientDetail() {
               </div>
             </CardContent>
           </Card>
-
-          <Card>
-            <CardHeader><CardTitle className="text-base">Observações</CardTitle></CardHeader>
-            <CardContent>
-              <Textarea
-                value={client.notes ?? ""}
-                onChange={(e) => setClient({ ...client, notes: e.target.value })}
-                onBlur={() => saveNotes(client.notes)}
-                placeholder="Notas, decisões, contexto…"
-                rows={4}
-              />
-            </CardContent>
-          </Card>
         </TabsContent>
 
         <TabsContent value="site" className="mt-4">
@@ -329,22 +316,15 @@ export default function ClientDetail() {
 
         <TabsContent value="briefing" className="mt-4">
           <Card>
-            <CardHeader><CardTitle className="text-base">Respostas do briefing</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="text-base">Observações do Cliente</CardTitle></CardHeader>
             <CardContent>
-              {!client.briefing_submitted_at ? (
-                <p className="text-sm text-muted-foreground">
-                  Briefing ainda não preenchido. Envie o link ao cliente.
-                </p>
-              ) : (
-                <div className="grid sm:grid-cols-2 gap-3 text-sm">
-                  {Object.entries(b).map(([k, v]) => v && (
-                    <div key={k} className="space-y-1">
-                      <div className="text-xs uppercase text-muted-foreground tracking-wide">{k.replace(/_/g, " ")}</div>
-                      <div>{String(v)}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <Textarea
+                value={client.notes ?? ""}
+                onChange={(e) => setClient({ ...client, notes: e.target.value })}
+                onBlur={() => saveNotes(client.notes)}
+                placeholder="Escreva aqui anotações importantes, decisões ou histórico do cliente. O texto é salvo automaticamente ao clicar fora da caixa."
+                rows={12}
+              />
             </CardContent>
           </Card>
         </TabsContent>
