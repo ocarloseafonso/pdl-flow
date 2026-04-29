@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Copy } from "lucide-react";
+import { ArrowLeft, Copy, CheckCircle2, Circle, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { daysBetween, formatDate } from "@/lib/dates";
 import { ClientSiteBlog } from "@/components/ClientSiteBlog";
@@ -39,6 +39,8 @@ export default function ClientDetail() {
 
   const currentPhase = phases.find((p) => p.id === client.current_phase_id);
   const currentTasks = tasks.filter((t) => t.phase_id === client.current_phase_id);
+  const pendingTasks = currentTasks.filter((t) => !t.completed);
+  const doneTasks = currentTasks.filter((t) => t.completed);
   const link = `${window.location.origin}/briefing/${client.briefing_token}`;
   const b = client.briefing_data ?? {};
 
@@ -55,6 +57,29 @@ export default function ClientDetail() {
     setClient({ ...client!, notes: value });
     const { error } = await supabase.from("clients").update({ notes: value }).eq("id", client!.id);
     if (error) toast.error(error.message);
+  }
+
+  async function advancePhase() {
+    if (!currentPhase) return;
+    const nextPhase = phases.find((p) => p.position === currentPhase.position + 1);
+    if (!nextPhase) {
+      toast.info("Este cliente já está na última fase.");
+      return;
+    }
+    if (pendingTasks.length > 0) {
+      toast.error(`Conclua as ${pendingTasks.length} tarefas pendentes antes de avançar.`);
+      return;
+    }
+    const { error } = await supabase
+      .from("clients")
+      .update({ current_phase_id: nextPhase.id, phase_started_at: new Date().toISOString() })
+      .eq("id", client!.id);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success(`Cliente avançado para: ${nextPhase.name}`);
+    load();
   }
 
   return (
@@ -76,15 +101,137 @@ export default function ClientDetail() {
         </div>
       </div>
 
-      <Tabs defaultValue="resumo">
+      {/* Default to checklist tab */}
+      <Tabs defaultValue="checklist">
         <TabsList>
+          <TabsTrigger value="checklist">✅ Checklist da fase</TabsTrigger>
           <TabsTrigger value="resumo">Resumo</TabsTrigger>
-          <TabsTrigger value="checklist">Checklist da fase</TabsTrigger>
+          <TabsTrigger value="todas">Todas as fases</TabsTrigger>
           <TabsTrigger value="site">Site & Blog</TabsTrigger>
           <TabsTrigger value="agenda">Agenda</TabsTrigger>
           <TabsTrigger value="briefing">Briefing</TabsTrigger>
         </TabsList>
 
+        {/* CHECKLIST — now is the default and more prominent */}
+        <TabsContent value="checklist" className="mt-4 space-y-4">
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <span className="phase-dot" style={{ background: `hsl(var(--phase-${client.current_phase_id}))` }} />
+                  {currentPhase?.name}
+                  <span className="text-muted-foreground font-normal text-sm">
+                    — {doneTasks.length}/{currentTasks.length} concluídas
+                  </span>
+                </CardTitle>
+                {pendingTasks.length === 0 && currentTasks.length > 0 && (
+                  <Button size="sm" onClick={advancePhase} className="gap-1.5">
+                    Avançar fase <ChevronRight className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+              {/* Progress bar */}
+              <div className="mt-2 h-2 rounded-full bg-secondary overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all ${doneTasks.length === currentTasks.length && currentTasks.length > 0 ? 'bg-success' : 'bg-primary'}`}
+                  style={{ width: `${currentTasks.length > 0 ? Math.round((doneTasks.length / currentTasks.length) * 100) : 0}%` }}
+                />
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-1">
+              {/* Pending tasks first with emphasis */}
+              {pendingTasks.length > 0 && (
+                <div className="space-y-1 mb-3">
+                  <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                    ⏳ Pendentes ({pendingTasks.length})
+                  </div>
+                  {pendingTasks.map((t) => (
+                    <label key={t.id} className="flex items-start gap-3 py-2 px-2 rounded-md hover:bg-accent/50 cursor-pointer transition-colors">
+                      <Checkbox checked={false} onCheckedChange={() => toggleTask(t)} className="mt-0.5" />
+                      <div>
+                        <span className="text-sm font-medium">{t.title}</span>
+                        {t.description && <p className="text-xs text-muted-foreground mt-0.5">{t.description}</p>}
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              )}
+
+              {/* Completed tasks */}
+              {doneTasks.length > 0 && (
+                <div className="space-y-1">
+                  <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+                    ✅ Concluídas ({doneTasks.length})
+                  </div>
+                  {doneTasks.map((t) => (
+                    <label key={t.id} className="flex items-start gap-3 py-2 px-2 rounded-md hover:bg-accent/50 cursor-pointer transition-colors opacity-60">
+                      <Checkbox checked={true} onCheckedChange={() => toggleTask(t)} className="mt-0.5" />
+                      <span className="text-sm line-through text-muted-foreground">{t.title}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+
+              {currentTasks.length === 0 && (
+                <p className="text-sm text-muted-foreground py-4 text-center">Nenhuma tarefa para esta fase.</p>
+              )}
+
+              {/* All done message */}
+              {pendingTasks.length === 0 && currentTasks.length > 0 && (
+                <div className="mt-4 p-4 rounded-lg bg-success/10 border border-success/20 flex items-center gap-3">
+                  <CheckCircle2 className="h-5 w-5 text-success shrink-0" />
+                  <div>
+                    <p className="font-medium text-sm">Todas as tarefas desta fase foram concluídas!</p>
+                    <p className="text-xs text-muted-foreground">Clique em "Avançar fase" para mover o cliente para a próxima etapa.</p>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ALL PHASES OVERVIEW */}
+        <TabsContent value="todas" className="mt-4 space-y-3">
+          {phases.map((ph) => {
+            const pTasks = tasks.filter((t) => t.phase_id === ph.id);
+            const pDone = pTasks.filter((t) => t.completed).length;
+            const isCurrent = ph.id === client.current_phase_id;
+            const isPast = ph.position < (currentPhase?.position ?? 0);
+            const isFuture = ph.position > (currentPhase?.position ?? 0);
+
+            return (
+              <Card key={ph.id} className={isCurrent ? "ring-2 ring-primary" : isFuture ? "opacity-50" : ""}>
+                <CardHeader className="py-3">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      <span className="phase-dot" style={{ background: `hsl(var(--phase-${ph.id}))` }} />
+                      {ph.name}
+                      {isCurrent && <Badge className="text-[10px]">Fase atual</Badge>}
+                      {isPast && <Badge variant="outline" className="text-[10px] text-success border-success">Concluída</Badge>}
+                    </CardTitle>
+                    <span className="text-xs text-muted-foreground">{pDone}/{pTasks.length}</span>
+                  </div>
+                </CardHeader>
+                {(isCurrent || isPast) && (
+                  <CardContent className="pt-0 space-y-1">
+                    {pTasks.map((t) => (
+                      <div key={t.id} className="flex items-center gap-2 text-xs py-0.5">
+                        {t.completed ? (
+                          <CheckCircle2 className="h-3.5 w-3.5 text-success shrink-0" />
+                        ) : (
+                          <Circle className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                        )}
+                        <span className={t.completed ? "line-through text-muted-foreground" : ""}>{t.title}</span>
+                      </div>
+                    ))}
+                  </CardContent>
+                )}
+              </Card>
+            );
+          })}
+        </TabsContent>
+
+        {/* RESUMO */}
         <TabsContent value="resumo" className="space-y-4 mt-4">
           <Card>
             <CardHeader><CardTitle className="text-base">Dados básicos</CardTitle></CardHeader>
@@ -122,24 +269,6 @@ export default function ClientDetail() {
                 placeholder="Notas, decisões, contexto…"
                 rows={4}
               />
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="checklist" className="mt-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">
-                {currentPhase?.name} — {currentTasks.filter((t) => t.completed).length}/{currentTasks.length} concluídas
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {currentTasks.map((t) => (
-                <label key={t.id} className="flex items-start gap-3 py-1.5 cursor-pointer">
-                  <Checkbox checked={t.completed} onCheckedChange={() => toggleTask(t)} className="mt-0.5" />
-                  <span className={t.completed ? "text-muted-foreground line-through" : ""}>{t.title}</span>
-                </label>
-              ))}
             </CardContent>
           </Card>
         </TabsContent>

@@ -18,20 +18,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => sub.subscription.unsubscribe();
   }, []);
 
-  // For development: bypass login by providing a dummy user if not logged in
-  const dummyUser: User = {
-    id: "00000000-0000-0000-0000-000000000000",
-    email: "admin@pdlflow.com",
-    app_metadata: {},
-    user_metadata: {},
-    aud: "authenticated",
-    created_at: new Date().toISOString(),
-  };
-
-  const currentUser = session?.user ?? dummyUser;
-
   return (
-    <Ctx.Provider value={{ user: currentUser, session, loading }}>{children}</Ctx.Provider>
+    <Ctx.Provider value={{ user: session?.user ?? null, session, loading }}>{children}</Ctx.Provider>
   );
 }
 
