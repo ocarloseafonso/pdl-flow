@@ -19,12 +19,11 @@ export default function ClientsKanban() {
   async function load() {
     if (!user) return;
     const [c, p, t] = await Promise.all([
-      supabase.from("clients").select("*").eq("user_id", user.id).order("created_at", { ascending: false }),
+      supabase.from("clients").select("*").order("created_at", { ascending: false }),
       supabase.from("phases").select("*").order("position"),
       supabase
         .from("client_tasks")
-        .select("*, clients!inner(user_id)")
-        .eq("clients.user_id", user.id),
+        .select("*, clients!inner(id)")
     ]);
     setClients((c.data as Client[]) ?? []);
     setPhases((p.data as Phase[]) ?? []);

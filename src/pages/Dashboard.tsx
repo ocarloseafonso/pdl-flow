@@ -22,19 +22,17 @@ export default function Dashboard() {
     if (!user) return;
     (async () => {
       const [c, p, ev, tasks] = await Promise.all([
-        supabase.from("clients").select("*").eq("user_id", user.id),
+        supabase.from("clients").select("*"),
         supabase.from("phases").select("*").order("position"),
         supabase
           .from("calendar_events")
           .select("id", { count: "exact", head: true })
-          .eq("user_id", user.id)
           .eq("event_date", todayISO())
           .eq("done", false),
         supabase
           .from("client_tasks")
-          .select("id, title, client_id, phase_id, clients!inner(name, user_id, current_phase_id)")
+          .select("id, title, client_id, phase_id, clients!inner(name, current_phase_id)")
           .eq("completed", false)
-          .eq("clients.user_id", user.id)
           .limit(50),
       ]);
       setClients((c.data as Client[]) ?? []);

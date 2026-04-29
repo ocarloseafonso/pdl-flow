@@ -6,12 +6,14 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { UserPlus, Shield, Users, KeyRound } from "lucide-react";
+import { UserPlus, Shield, Users, KeyRound, RefreshCw, Database } from "lucide-react";
 
 const ADMIN_EMAILS = [
   "ceafonso.solucoesdigitais@gmail.com",
   "contato@ceafonso.com.br",
 ];
+
+const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwHPwrYO9sdrTBLK32BNR32F288O5BM_tv2rpzKtH2l7Mp6Fr2cBivN8WtWCoXuIOLfFw/exec";
 
 export default function Config() {
   // Invite state
@@ -24,6 +26,25 @@ export default function Config() {
   const [newPass, setNewPass] = useState("");
   const [confirmPass, setConfirmPass] = useState("");
   const [changingPass, setChangingPass] = useState(false);
+
+  // Sync state
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<string | null>(null);
+
+  async function syncFromSheets() {
+    setSyncing(true);
+    setSyncResult(null);
+    try {
+      const res = await fetch(`${APPS_SCRIPT_URL}?action=syncAllClients`);
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setSyncResult(`✅ Sincronizado! ${data.synced ?? 0} cliente(s) importados/atualizados.`);
+    } catch (err: any) {
+      setSyncResult(`❌ Erro: ${err.message}`);
+    } finally {
+      setSyncing(false);
+    }
+  }
 
   async function inviteUser(e: React.FormEvent) {
     e.preventDefault();
@@ -225,6 +246,26 @@ export default function Config() {
         <CardContent className="text-sm text-muted-foreground space-y-2">
           <p>Capacidade configurada: <strong>10 clientes ativos em paralelo</strong>.</p>
           <p>Estimativa de entrega: ~3 a 4 semanas por cliente (~10 a 12h de trabalho ativo).</p>
+        </CardContent>
+      </Card>
+
+      {/* Google Sheets Sync */}
+      <Card>
+        <CardHeader><CardTitle className="text-base flex items-center gap-2">
+          <Database className="h-4 w-4 text-primary" />
+          Sincronizar com Google Sheets
+        </CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Importa/atualiza todos os clientes da sua planilha diretamente para o PDL Flow. Use sempre que adicionar novos clientes na planilha.
+          </p>
+          <Button onClick={syncFromSheets} disabled={syncing} className="gap-2">
+            <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
+            {syncing ? "Sincronizando…" : "Sincronizar agora"}
+          </Button>
+          {syncResult && (
+            <p className="text-sm mt-2 p-3 rounded-md bg-accent/30 border">{syncResult}</p>
+          )}
         </CardContent>
       </Card>
     </div>

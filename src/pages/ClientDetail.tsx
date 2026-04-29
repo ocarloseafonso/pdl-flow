@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Copy, CheckCircle2, Circle, ChevronRight } from "lucide-react";
+import { ArrowLeft, Copy, CheckCircle2, Circle, ChevronRight, RefreshCw, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { daysBetween, formatDate } from "@/lib/dates";
 import { ClientSiteBlog } from "@/components/ClientSiteBlog";
@@ -41,8 +41,22 @@ export default function ClientDetail() {
   const currentTasks = tasks.filter((t) => t.phase_id === client.current_phase_id);
   const pendingTasks = currentTasks.filter((t) => !t.completed);
   const doneTasks = currentTasks.filter((t) => t.completed);
-  const link = `${window.location.origin}/briefing/${client.briefing_token}`;
+  const CHAT_URL = "https://novocliente.ceafonso.com.br/";
   const b = client.briefing_data ?? {};
+
+  async function regenToken() {
+    const base = (client.company_name || client.name)
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-zA-Z0-9]/g, "")
+      .slice(0, 8)
+      .toLowerCase();
+    const newCode = `${base}${Math.floor(100 + Math.random() * 900)}`;
+    const { error } = await supabase.from("clients").update({ briefing_token: newCode }).eq("id", client!.id);
+    if (error) { toast.error(error.message); return; }
+    setClient({ ...client!, briefing_token: newCode });
+    toast.success("Novo código gerado!");
+  }
 
   async function toggleTask(t: ClientTask) {
     const next = !t.completed;
@@ -248,12 +262,40 @@ export default function ClientDetail() {
           </Card>
 
           <Card>
-            <CardHeader><CardTitle className="text-base">Link do briefing</CardTitle></CardHeader>
-            <CardContent>
-              <div className="flex gap-2">
-                <Input readOnly value={link} className="text-xs" />
-                <Button variant="outline" size="icon" onClick={() => { navigator.clipboard.writeText(link); toast.success("Copiado"); }}>
-                  <Copy className="h-4 w-4" />
+            <CardHeader><CardTitle className="text-base">🔑 Código de acesso do cliente</CardTitle></CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Código atual</Label>
+                <div className="flex gap-2">
+                  <Input readOnly value={client.briefing_token} className="font-mono font-bold tracking-widest text-base" />
+                  <Button variant="outline" size="icon" onClick={() => { navigator.clipboard.writeText(client.briefing_token); toast.success("Código copiado!"); }} title="Copiar código">
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                  <Button variant="outline" size="icon" onClick={regenToken} title="Gerar novo código">
+                    <RefreshCw className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Link do chat (enviar ao cliente)</Label>
+                <div className="flex gap-2">
+                  <Input readOnly value="https://novocliente.ceafonso.com.br/" className="text-xs" />
+                  <Button variant="outline" size="icon" asChild>
+                    <a href="https://novocliente.ceafonso.com.br/" target="_blank" rel="noopener noreferrer">
+                      <ExternalLink className="h-4 w-4" />
+                    </a>
+                  </Button>
+                </div>
+              </div>
+              <div className="rounded-md border bg-accent/20 p-3 text-sm space-y-2">
+                <p className="text-xs font-semibold uppercase text-muted-foreground tracking-wider">Mensagem pronta para WhatsApp</p>
+                <p className="text-sm leading-relaxed">Olá! Para preencher seu cadastro, acesse o link abaixo e use o código de acesso:<br />🔗 https://novocliente.ceafonso.com.br/<br />🔑 Código: <strong>{client.briefing_token}</strong></p>
+                <Button size="sm" variant="secondary" className="w-full gap-2" onClick={() => {
+                  const msg = `Olá! Para preencher seu cadastro, acesse o link abaixo e use o código de acesso:\n\n🔗 https://novocliente.ceafonso.com.br/\n🔑 Código: ${client.briefing_token}`;
+                  navigator.clipboard.writeText(msg);
+                  toast.success("Mensagem copiada!");
+                }}>
+                  <Copy className="h-3.5 w-3.5" /> Copiar mensagem
                 </Button>
               </div>
             </CardContent>
