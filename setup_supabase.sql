@@ -182,29 +182,31 @@ INSERT INTO public.holidays_br (date, name) VALUES
 ('2026-11-20', 'Dia da Consciência Negra'),
 ('2026-12-25', 'Natal');
 
--- ============ RLS ============
+-- ============ RLS (DESATIVADO PARA FACILITAR USO LOCAL) ============
+-- Permitir todas as operações para todos (anon e autenticados) para facilitar uso sem login
 ALTER TABLE public.clients ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.client_tasks ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.blog_articles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.calendar_events ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.prompt_templates ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.phases ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.task_templates ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.holidays_br ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "permissive" ON public.clients FOR ALL USING (true) WITH CHECK (true);
 
-CREATE POLICY "phases readable by all" ON public.phases FOR SELECT USING (true);
-CREATE POLICY "task_templates readable by all" ON public.task_templates FOR SELECT USING (true);
-CREATE POLICY "holidays readable by all" ON public.holidays_br FOR SELECT USING (true);
-CREATE POLICY "owner manages clients" ON public.clients FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
-CREATE POLICY "owner manages client tasks" ON public.client_tasks FOR ALL
-  USING (EXISTS (SELECT 1 FROM public.clients c WHERE c.id = client_tasks.client_id AND c.user_id = auth.uid()))
-  WITH CHECK (EXISTS (SELECT 1 FROM public.clients c WHERE c.id = client_tasks.client_id AND c.user_id = auth.uid()));
-CREATE POLICY "owner manages articles" ON public.blog_articles FOR ALL
-  USING (EXISTS (SELECT 1 FROM public.clients c WHERE c.id = blog_articles.client_id AND c.user_id = auth.uid()))
-  WITH CHECK (EXISTS (SELECT 1 FROM public.clients c WHERE c.id = blog_articles.client_id AND c.user_id = auth.uid()));
-CREATE POLICY "owner manages events" ON public.calendar_events FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
-CREATE POLICY "auth users read prompts" ON public.prompt_templates FOR SELECT USING (auth.uid() IS NOT NULL);
-CREATE POLICY "auth users update prompts" ON public.prompt_templates FOR UPDATE USING (auth.uid() IS NOT NULL);
+ALTER TABLE public.client_tasks ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "permissive" ON public.client_tasks FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE public.blog_articles ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "permissive" ON public.blog_articles FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE public.calendar_events ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "permissive" ON public.calendar_events FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE public.prompt_templates ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "permissive" ON public.prompt_templates FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE public.phases ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "permissive" ON public.phases FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE public.task_templates ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "permissive" ON public.task_templates FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE public.holidays_br ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "permissive" ON public.holidays_br FOR ALL USING (true) WITH CHECK (true);
 
 -- ============ FUNCTIONS ============
 CREATE OR REPLACE FUNCTION public.create_tasks_for_new_client()
