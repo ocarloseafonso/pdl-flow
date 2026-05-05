@@ -21,7 +21,7 @@ import {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-const OPENAI_KEY = import.meta.env.VITE_OPENAI_API_KEY as string;
+const getOpenAiKey = () => localStorage.getItem("OPENAI_API_KEY") || import.meta.env.VITE_OPENAI_API_KEY || "";
 
 /** Mapa legível dos campos do briefing */
 const FIELD_LABELS: Record<string, string> = {
@@ -147,13 +147,14 @@ Responda sempre em português do Brasil, de forma direta e objetiva.`;
 // ─── Funções de IA ────────────────────────────────────────────────────────────
 
 async function callOpenAI(messages: { role: string; content: string }[]): Promise<string> {
-  if (!OPENAI_KEY) throw new Error("Chave da OpenAI não configurada no .env");
+  const key = getOpenAiKey();
+  if (!key) throw new Error("Chave da OpenAI não configurada. Acesse as Configurações para adicionar.");
 
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${OPENAI_KEY}`,
+      Authorization: `Bearer ${key}`,
     },
     body: JSON.stringify({
       model: "gpt-4o",

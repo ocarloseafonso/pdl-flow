@@ -31,6 +31,14 @@ export default function Config() {
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<string | null>(null);
 
+  // OpenAI Settings
+  const [openAiKey, setOpenAiKey] = useState(() => localStorage.getItem("OPENAI_API_KEY") || "");
+
+  function saveOpenAiKey() {
+    localStorage.setItem("OPENAI_API_KEY", openAiKey);
+    toast.success("Chave da OpenAI salva com sucesso no navegador!");
+  }
+
   async function syncFromSheets() {
     setSyncing(true);
     setSyncResult(null);
@@ -246,6 +254,32 @@ export default function Config() {
         <CardContent className="text-sm text-muted-foreground space-y-2">
           <p>Capacidade configurada: <strong>10 clientes ativos em paralelo</strong>.</p>
           <p>Estimativa de entrega: ~3 a 4 semanas por cliente (~10 a 12h de trabalho ativo).</p>
+        </CardContent>
+      </Card>
+
+      {/* OpenAI Settings */}
+      <Card>
+        <CardHeader><CardTitle className="text-base flex items-center gap-2">
+          <KeyRound className="h-4 w-4 text-primary" />
+          Configuração de IA (OpenAI)
+        </CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            A chave da OpenAI é necessária para a geração automática de estratégias e material de execução.
+            Essa chave ficará salva apenas neste navegador (não vai para o banco de dados).
+          </p>
+          <div className="flex gap-2">
+            <Input
+              type="password"
+              placeholder="sk-proj-..."
+              value={openAiKey}
+              onChange={(e) => setOpenAiKey(e.target.value)}
+              className="max-w-md"
+            />
+            <Button onClick={saveOpenAiKey} variant="secondary">
+              Salvar Chave
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
