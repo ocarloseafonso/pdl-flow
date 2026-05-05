@@ -164,7 +164,9 @@ async function callOpenAI(messages: { role: string; content: string }[]): Promis
   });
 
   if (!res.ok) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const err = await res.json().catch(() => ({}));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     throw new Error((err as any)?.error?.message || `Erro ${res.status}`);
   }
   const data = await res.json();
@@ -238,7 +240,9 @@ export function ClientEstrategia({ client, onChange }: Props) {
     try {
       const current = JSON.parse(localStorage.getItem(storageKey) || "{}");
       localStorage.setItem(storageKey, JSON.stringify({ ...current, ...patch }));
-    } catch {}
+    } catch (e) {
+      // ignore
+    }
   }
 
   // Also save discussao to Supabase notes when it changes (debounced)
@@ -268,7 +272,9 @@ export function ClientEstrategia({ client, onChange }: Props) {
         if (parsed.estrategia && !estrategia) { setEstrategia(parsed.estrategia); persist({ estrategia: parsed.estrategia }); }
         if (parsed.discussao && !discussao) { setDiscussao(parsed.discussao); persist({ discussao: parsed.discussao }); }
         if (parsed.execucao && !execucao) { setExecucao(parsed.execucao); persist({ execucao: parsed.execucao }); }
-      } catch {}
+      } catch (e) {
+        // ignore
+      }
     }
   }, [client.id]);
 
@@ -286,10 +292,11 @@ export function ClientEstrategia({ client, onChange }: Props) {
       await supabase.from("clients").update({ notes: buildNotesJson({ estrategia: result, discussao, execucao }) }).eq("id", client.id);
       setStatusE("done");
       toast.success("Estratégia gerada com sucesso!");
-    } catch (e: any) {
-      setErrMsg(e.message);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setErrMsg(msg);
       setStatusE("error");
-      toast.error("Erro ao gerar estratégia: " + e.message);
+      toast.error("Erro ao gerar estratégia: " + msg);
     }
   }
 
@@ -307,10 +314,11 @@ export function ClientEstrategia({ client, onChange }: Props) {
       await supabase.from("clients").update({ notes: buildNotesJson({ estrategia, discussao, execucao: result }) }).eq("id", client.id);
       setStatusX("done");
       toast.success("Material de execução gerado!");
-    } catch (e: any) {
-      setErrMsg(e.message);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setErrMsg(msg);
       setStatusX("error");
-      toast.error("Erro ao gerar execução: " + e.message);
+      toast.error("Erro ao gerar execução: " + msg);
     }
   }
 
