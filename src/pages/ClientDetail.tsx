@@ -253,7 +253,8 @@ export default function ClientDetail() {
 
         {/* ESTRATÉGIA */}
         <TabsContent value="estrategia" className="mt-4">
-          <ClientEstrategia client={client} onChange={load} />
+          {/* <ClientEstrategia client={client} onChange={load} /> */}
+          <div className="p-8 text-center text-muted-foreground">Em manutenção...</div>
         </TabsContent>
 
         {/* ALL PHASES OVERVIEW */}
