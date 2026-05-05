@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState, Suspense } from "react";
 import { useParams, Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import type { Client, ClientTask, Phase } from "@/lib/types";
@@ -15,7 +15,10 @@ import { toast } from "sonner";
 import { daysBetween, formatDate } from "@/lib/dates";
 import { ClientSiteBlog } from "@/components/ClientSiteBlog";
 import { ClientCalendar } from "@/components/ClientCalendar";
-import { ClientEstrategia } from "@/components/ClientEstrategia";
+// lazy load ClientEstrategia to isolate potential module evaluation errors
+const ClientEstrategia = React.lazy(() => 
+  import("@/components/ClientEstrategia").then(m => ({ default: m.ClientEstrategia }))
+);
 
 export default function ClientDetail() {
   const { id } = useParams<{ id: string }>();
@@ -253,7 +256,9 @@ export default function ClientDetail() {
 
         {/* ESTRATÉGIA */}
         <TabsContent value="estrategia" className="mt-4">
-          <ClientEstrategia client={client} onChange={load} />
+          <Suspense fallback={<div className="p-8 text-center text-muted-foreground">Carregando módulo de estratégia...</div>}>
+            <ClientEstrategia client={client} onChange={load} />
+          </Suspense>
         </TabsContent>
 
         {/* ALL PHASES OVERVIEW */}
