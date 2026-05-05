@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { daysBetween, formatDate } from "@/lib/dates";
 import { ClientSiteBlog } from "@/components/ClientSiteBlog";
 import { ClientCalendar } from "@/components/ClientCalendar";
+import { ClientEstrategia } from "@/components/ClientEstrategia";
 
 export default function ClientDetail() {
   const { id } = useParams<{ id: string }>();
@@ -158,6 +159,7 @@ export default function ClientDetail() {
       <Tabs defaultValue="checklist">
         <TabsList>
           <TabsTrigger value="checklist">✅ Checklist da fase</TabsTrigger>
+          <TabsTrigger value="estrategia">🎯 Estratégia</TabsTrigger>
           <TabsTrigger value="resumo">Briefing</TabsTrigger>
           <TabsTrigger value="todas">Todas as fases</TabsTrigger>
           <TabsTrigger value="site">Site & Blog</TabsTrigger>
@@ -247,6 +249,11 @@ export default function ClientDetail() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* ESTRATÉGIA */}
+        <TabsContent value="estrategia" className="mt-4">
+          <ClientEstrategia client={client} onChange={load} />
         </TabsContent>
 
         {/* ALL PHASES OVERVIEW */}
