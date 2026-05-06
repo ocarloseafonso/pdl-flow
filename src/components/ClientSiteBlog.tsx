@@ -40,8 +40,22 @@ export function ClientSiteBlog({ client, onChange }: { client: Client; onChange:
   }
 
   function generate(kind: "site" | "blog_pauta" | "blog_artigo", extras?: Record<string, string>, title?: string) {
-    const tpl = prompts[kind];
-    if (!tpl) return toast.error("Template não carregado");
+    const idMap: Record<string, string> = {
+      site: "site_generator",
+      blog_artigo: "blog_generator"
+    };
+    
+    let tpl = prompts[kind] || prompts[idMap[kind]];
+    
+    if (!tpl) {
+      const fallbacks: Record<string, string> = {
+        site: "Atue como um web designer e crie uma landing page responsiva em HTML/CSS para a empresa {{company_name}}. O segmento é {{segment}}. Foco em conversão local.",
+        blog_pauta: "Atue como um especialista em SEO Local. Gere uma pauta com 9 artigos de blog para a empresa {{company_name}} do segmento {{segment}}. Devolva em formato de tabela (markdown) com o cabeçalho: Posição | Título | Palavra-chave | Intenção | Formato | Prioridade",
+        blog_artigo: "Atue como um especialista em SEO Local. Escreva um artigo de blog de 800 palavras para a empresa {{company_name}} com o título: '{{article_title}}'. A palavra-chave principal é: {{article_keyword}}."
+      };
+      tpl = { id: kind, title: kind, content: fallbacks[kind] } as PromptTemplate;
+    }
+
     const filled = fillPrompt(tpl.content, client, extras);
     setOpenPromptFor({ kind, title, text: filled });
   }
