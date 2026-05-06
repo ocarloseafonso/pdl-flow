@@ -13,31 +13,32 @@ export default function Prompts() {
   async function load() {
     const { data } = await supabase.from("prompt_templates").select("*").order("id");
     
-    if (!data || data.length === 0) {
-      // Auto-insert default prompts if the table is empty
-      const defaultPrompts = [
-        {
-          id: "site_generator",
-          title: "1. Gerador de Site",
-          content: "Atue como um web designer e crie uma landing page responsiva em HTML/CSS para a empresa {{company_name}}. O segmento é {{segment}}. Foco em conversão local."
-        },
-        {
-          id: "blog_generator",
-          title: "2. Gerador de Artigos (Blog)",
-          content: "Atue como um especialista em SEO Local. Escreva um artigo de blog de 800 palavras para a empresa {{company_name}} com o título: '{{article_title}}'. A palavra-chave principal é: {{keyword}}."
-        },
-        {
-          id: "gmb_optimization",
-          title: "3. Otimização do Google Meu Negócio",
-          content: "Crie uma descrição otimizada para o Google Meu Negócio da empresa {{company_name}}, focada no segmento {{segment}}. Use até 750 caracteres e inclua chamadas para ação."
-        }
-      ];
-      
-      const { data: insertedData, error } = await supabase.from("prompt_templates").insert(defaultPrompts).select();
-      if (!error && insertedData) {
-        setPrompts(insertedData as PromptTemplate[]);
-        return;
+    const requiredPrompts = [
+      {
+        id: "site",
+        title: "1. Gerador de Site",
+        content: "Atue como um web designer e crie uma landing page responsiva em HTML/CSS para a empresa {{company_name}}. O segmento é {{segment}}. Foco em conversão local."
+      },
+      {
+        id: "blog_pauta",
+        title: "2. Gerador de Pauta de Blog (9 Artigos)",
+        content: "Atue como um especialista em SEO Local. Gere uma pauta com 9 artigos de blog para a empresa {{company_name}} do segmento {{segment}}. Devolva em formato de tabela (markdown) usando EXATAMENTE o cabeçalho: Posição | Título | Palavra-chave | Intenção | Formato | Prioridade\nExemplo da primeira linha: 1 | Como escolher... | keyword | Informacional | Guia | 1"
+      },
+      {
+        id: "blog_artigo",
+        title: "3. Gerador de Artigo Específico",
+        content: "Atue como um especialista em SEO Local. Escreva um artigo de blog de 800 palavras para a empresa {{company_name}} com o título: '{{article_title}}'. A palavra-chave principal é: {{article_keyword}}. O formato do artigo é: {{article_format}}."
       }
+    ];
+
+    const currentMap = new Set((data || []).map(p => p.id));
+    const missing = requiredPrompts.filter(p => !currentMap.has(p.id));
+
+    if (missing.length > 0) {
+      await supabase.from("prompt_templates").insert(missing);
+      const { data: newData } = await supabase.from("prompt_templates").select("*").order("id");
+      setPrompts((newData as PromptTemplate[]) ?? []);
+      return;
     }
     
     setPrompts((data as PromptTemplate[]) ?? []);
