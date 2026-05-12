@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { daysBetween, formatDate } from "@/lib/dates";
 import { ClientSiteBlog } from "@/components/ClientSiteBlog";
 import { ClientCalendar } from "@/components/ClientCalendar";
+import RelatorioFinalAgent from "@/components/RelatorioFinalAgent";
 // lazy load ClientEstrategia to isolate potential module evaluation errors
 const ClientEstrategia = React.lazy(() => 
   import("@/components/ClientEstrategia").then(m => ({ default: m.ClientEstrategia }))
@@ -160,7 +161,7 @@ export default function ClientDetail() {
 
       {/* Default to checklist tab */}
       <Tabs defaultValue="checklist">
-        <TabsList>
+        <TabsList className="flex-wrap h-auto gap-0.5">
           <TabsTrigger value="checklist">✅ Checklist da fase</TabsTrigger>
           <TabsTrigger value="estrategia">🎯 Estratégia</TabsTrigger>
           <TabsTrigger value="resumo">Briefing</TabsTrigger>
@@ -169,7 +170,9 @@ export default function ClientDetail() {
           <TabsTrigger value="agenda">Agenda</TabsTrigger>
           <TabsTrigger value="contrato">📋 Contrato</TabsTrigger>
           <TabsTrigger value="briefing">Observações</TabsTrigger>
+          <TabsTrigger value="relatorio">📄 Relatório Final</TabsTrigger>
         </TabsList>
+
 
         {/* CHECKLIST — now is the default and more prominent */}
         <TabsContent value="checklist" className="mt-4 space-y-4">
@@ -473,6 +476,9 @@ export default function ClientDetail() {
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+        <TabsContent value="relatorio" className="mt-4">
+          <RelatorioFinalAgent client={client} />
         </TabsContent>
       </Tabs>
     </div>
