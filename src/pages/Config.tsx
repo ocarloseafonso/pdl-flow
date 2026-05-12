@@ -11,6 +11,7 @@ import { UserPlus, Shield, Users, KeyRound, RefreshCw, Database } from "lucide-r
 const ADMIN_EMAILS = [
   "ceafonso.solucoesdigitais@gmail.com",
   "contato@ceafonso.com.br",
+  "admin@ceafonso.com.br",
 ];
 
 const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwqXS_Ejx9gF2VpOnN4T43kpl1FpvVLF4IVH2cbq9xPx1DV6gBIjeLnDc4Gyf7mOxAj6w/exec";
@@ -111,6 +112,35 @@ export default function Config() {
         <h1 className="text-2xl font-bold">Configurações</h1>
         <p className="text-sm text-muted-foreground">Gerenciamento de equipe e ajustes da operação.</p>
       </div>
+
+      {/* OpenAI Settings — PRIMEIRO para fácil acesso */}
+      <Card className="border-primary/30 bg-primary/5">
+        <CardHeader><CardTitle className="text-base flex items-center gap-2">
+          <KeyRound className="h-4 w-4 text-primary" />
+          Chave de IA (OpenAI) — necessária para os Agentes
+        </CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Cole aqui sua chave da OpenAI (<strong>sk-proj-...</strong>). Ela fica salva apenas neste navegador e é usada pelos Agentes IA.
+          </p>
+          <div className="flex gap-2">
+            <Input
+              id="openai-key-input"
+              type="password"
+              placeholder="sk-proj-..."
+              value={openAiKey}
+              onChange={(e) => setOpenAiKey(e.target.value)}
+              className="max-w-md"
+            />
+            <Button onClick={saveOpenAiKey} variant="default" className="gap-2">
+              <KeyRound className="h-4 w-4" /> Salvar Chave
+            </Button>
+          </div>
+          {openAiKey && (
+            <p className="text-xs text-green-600 dark:text-green-400">✅ Chave configurada. Os Agentes IA estão prontos para uso.</p>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Change Password */}
       <Card>
@@ -257,31 +287,7 @@ export default function Config() {
         </CardContent>
       </Card>
 
-      {/* OpenAI Settings */}
-      <Card>
-        <CardHeader><CardTitle className="text-base flex items-center gap-2">
-          <KeyRound className="h-4 w-4 text-primary" />
-          Configuração de IA (OpenAI)
-        </CardTitle></CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-sm text-muted-foreground">
-            A chave da OpenAI é necessária para a geração automática de estratégias e material de execução.
-            Essa chave ficará salva apenas neste navegador (não vai para o banco de dados).
-          </p>
-          <div className="flex gap-2">
-            <Input
-              type="password"
-              placeholder="sk-proj-..."
-              value={openAiKey}
-              onChange={(e) => setOpenAiKey(e.target.value)}
-              className="max-w-md"
-            />
-            <Button onClick={saveOpenAiKey} variant="secondary">
-              Salvar Chave
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+
 
       {/* Google Sheets Sync */}
       <Card>

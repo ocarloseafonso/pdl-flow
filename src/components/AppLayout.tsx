@@ -79,7 +79,7 @@ export function AppLayout() {
       </aside>
       <main className="flex-1 min-w-0 flex flex-col h-screen">
         <TodayReminderBanner />
-        <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
+        <div className="flex-1 min-h-0 overflow-auto">
           <Outlet />
         </div>
       </main>
