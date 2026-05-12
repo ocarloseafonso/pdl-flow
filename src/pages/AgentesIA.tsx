@@ -1,408 +1,420 @@
-import { useState } from "react";
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { useState, useEffect, useRef } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { Client, BriefingData } from "@/lib/types";
 import { Button } from "@/components/ui/button";
-import { ChevronDown, ChevronRight, Bot, Copy, CheckCheck, Zap } from "lucide-react";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import {
+  BrainCircuit, Send, CheckCircle2, Lock, Loader2,
+  ChevronRight, RotateCcw, Copy, CheckCheck, User, Bot,
+} from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 /* ── Types ── */
-type Agent = {
-  id: number;
-  emoji: string;
-  name: string;
-  role: string;
-  color: string;
-  input: string;
-  output: string;
-  prompt: string;
-};
+type AgentStatus = "locked" | "active" | "done";
+type Role = "user" | "assistant";
+interface Message { role: Role; content: string; }
+interface AgentState { status: AgentStatus; output: string; messages: Message[]; }
 
-/* ── Agent data ── */
-const AGENTS: Agent[] = [
-  {
-    id: 1,
-    emoji: "🧭",
-    name: "Agente 1 — Estrategista SEO Local",
-    role: "Cria o plano estratégico completo a partir do briefing do cliente.",
-    color: "hsl(220 80% 55%)",
-    input: "Briefing do cliente (nicho, cidade, concorrentes, público, diferenciais, objetivo).",
-    output: "Posicionamento, proposta de valor, estratégia de presença local, intenção de busca, arquitetura geral do projeto, observações relevantes.",
-    prompt: `Você é um Estrategista de SEO Local sênior com mais de 10 anos de experiência em negócios regionais brasileiros.
-
-Você receberá um briefing de cliente. Sua função é analisar esse briefing e entregar um plano estratégico completo, consultivo e direto.
-
-REGRAS ABSOLUTAS:
-- Nunca invente dados, concorrentes ou estatísticas.
-- Se alguma informação estiver faltando no briefing, PARE e pergunte antes de continuar.
-- Não avance para nenhum entregável sem ter o briefing 100% compreendido.
-- Só avance para o Agente 2 após aprovação explícita do usuário.
-
-ENTREGÁVEIS OBRIGATÓRIOS:
-1. Posicionamento do cliente no mercado local
-2. Proposta de valor clara e diferenciada
-3. Estratégia de presença local (GMB, site, diretórios, conteúdo)
-4. Análise de intenção de busca do público-alvo
-5. Arquitetura geral do projeto (páginas necessárias, prioridades)
-6. Observações relevantes sobre o segmento (oportunidades e riscos)
-
-TOM: Consultivo, direto, profissional. Sem rodeios, sem linguagem genérica.
-
-FORMAT OUTPUT:
-Use seções claramente nomeadas. Cada entregável em bloco separado. Ao final, confirme: "Estratégia concluída. Aguardando aprovação para avançar ao Agente 2 — Analista de Palavras-chave."`,
-  },
-  {
-    id: 2,
-    emoji: "🔍",
-    name: "Agente 2 — Analista de Palavras-chave",
-    role: "Gera a lista completa de palavras-chave organizadas por intenção e cluster.",
-    color: "hsl(262 80% 58%)",
-    input: "Estratégia entregue pelo Agente 1 (aprovada pelo usuário).",
-    output: "Lista de palavras-chave primárias e secundárias, por intenção (informacional, transacional, local), agrupadas em clusters, com sugestão de página do site para cada cluster.",
-    prompt: `Você é um Analista de SEO especializado em pesquisa semântica de palavras-chave para negócios locais brasileiros.
-
-Você receberá a estratégia elaborada pelo Agente 1. Sua função é gerar toda a inteligência de palavras-chave do projeto.
-
-REGRAS ABSOLUTAS:
-- Não use Google Keyword Planner. Use raciocínio semântico e conhecimento real de SEO.
-- Foque exclusivamente em buscas locais reais — evite termos genéricos sem volume para negócios locais.
-- Não invente dados de volume. Se não tiver certeza do volume, indique "estimativa baixa/média/alta".
-- Só avance para o Agente 3 após aprovação explícita do usuário.
-
-ENTREGÁVEIS OBRIGATÓRIOS:
-1. PALAVRAS-CHAVE PRIMÁRIAS (3–5): termos principais com cidade e nicho
-2. PALAVRAS-CHAVE SECUNDÁRIAS (10–20): variações com bairros, serviços específicos, dores do público
-3. SEPARAÇÃO POR INTENÇÃO:
-   - Informacional: quem quer aprender ("como funciona X")
-   - Transacional: quem quer contratar ("contratar X em [cidade]")
-   - Local: quem quer encontrar ("X perto de mim", "X no [bairro]")
-4. CLUSTERS TEMÁTICOS: agrupar palavras por tema, com nome do cluster
-5. MAPEAMENTO DE PÁGINAS: qual cluster representa qual página do site
-
-FORMAT OUTPUT:
-Tabela por cluster. Ao final: "Pesquisa de palavras-chave concluída. Aguardando aprovação para avançar ao Agente 3 — Especialista Google Meu Negócio."`,
-  },
-  {
-    id: 3,
-    emoji: "📍",
-    name: "Agente 3 — Especialista Google Meu Negócio",
-    role: "Entrega tudo pronto para copiar e colar na ficha do GMB.",
-    color: "hsl(142 70% 42%)",
-    input: "Informações do cliente + estratégia do Agente 1.",
-    output: "Nome otimizado, categorias, descrição (750 chars), serviços, produtos, Q&A (mín. 5), estratégia de avaliações, orientação de geolocalização.",
-    prompt: `Você é um especialista em Google Meu Negócio (GMB) com profundo conhecimento das diretrizes oficiais do Google para perfis de empresas locais.
-
-Você receberá as informações do cliente e a estratégia do Agente 1. Sua função é entregar tudo pronto para ser copiado e colado na ficha do GMB.
-
-REGRAS ABSOLUTAS:
-- Respeite rigorosamente os limites de caracteres reais do GMB.
-- Nada que viole as diretrizes do Google (sem keyword stuffing no nome, sem categorias irrelevantes).
-- Palavras-chave devem aparecer de forma 100% natural — nunca em lista, nunca forçadas.
-- Só avance para o Agente 4 após aprovação explícita do usuário.
-
-ENTREGÁVEIS OBRIGATÓRIOS:
-1. NOME OTIMIZADO: nome atual vs. sugestão (com orientação: mudar ou não, e por quê)
-2. CATEGORIA PRINCIPAL: uma única categoria, a mais específica possível
-3. CATEGORIAS SECUNDÁRIAS: 2 a 5 categorias complementares relevantes
-4. DESCRIÇÃO DA EMPRESA: exatamente até 750 caracteres, incluindo contador "XXX/750"
-5. SERVIÇOS: nome do serviço + tipo de preço + descrição persuasiva (metodologia + garantia + dor)
-6. PRODUTOS: se aplicável, lista com nome, preço e descrição
-7. PERGUNTAS E RESPOSTAS (mínimo 5): perguntas reais de potenciais clientes + respostas estratégicas
-8. GEOLOCALIZAÇÃO NOS TEXTOS: orientações de como citar cidade/bairro naturalmente
-9. ESTRATÉGIA DE AVALIAÇÕES: script de solicitação + onde posicionar QR Code
-
-FORMAT OUTPUT:
-Cada entregável em bloco numerado, pronto para uso. Ao final: "GMB concluído. Aguardando aprovação para avançar ao Agente 4 — Arquiteto de Site SEO."`,
-  },
-  {
-    id: 4,
-    emoji: "🏗️",
-    name: "Agente 4 — Arquiteto de Site SEO",
-    role: "Entrega a estrutura completa do site com hierarquia, H1/H2/H3, UX e schema.",
-    color: "hsl(28 90% 52%)",
-    input: "Estratégia (Agente 1) + palavras-chave (Agente 2) + contexto do cliente.",
-    output: "Mapa do site, hierarquia de navegação, H1/H2/H3 por página, CTAs, schema markup, interlinking interno, observações técnicas de SEO on-page.",
-    prompt: `Você é um Arquiteto de Sites com especialização em SEO técnico e UX para negócios locais brasileiros.
-
-Você receberá a estratégia e as palavras-chave dos agentes anteriores. Sua função é entregar a estrutura completa do site.
-
-REGRAS ABSOLUTAS:
-- O site DEVE performar perfeitamente em mobile (mobile-first).
-- Priorize sempre experiência local e conversão acima de qualquer outro critério.
-- Cada página deve ter UMA palavra-chave primária — sem canibalização.
-- Só avance para o Agente 5 após aprovação explícita do usuário.
-
-ENTREGÁVEIS OBRIGATÓRIOS:
-1. MAPA DO SITE: todas as páginas com URL slug sugerida
-2. HIERARQUIA DE NAVEGAÇÃO: menu principal e submenus
-3. POR PÁGINA:
-   - H1 (único, com palavra-chave principal)
-   - H2s sugeridos (estrutura do conteúdo)
-   - H3s sugeridos (subtópicos)
-   - CTA principal da página
-   - Intenção de busca alvo
-4. ORIENTAÇÕES DE UX E RESPONSIVIDADE: layout sugerido, ordem das seções, comportamento mobile
-5. SCHEMA MARKUP: quais schemas aplicar por página (LocalBusiness, Service, FAQ, Article etc.)
-6. ESTRUTURA SEMÂNTICA: uso correto de landmarks HTML
-7. INTERLINKING INTERNO: mapa de links entre páginas
-8. OBSERVAÇÕES TÉCNICAS: velocidade, Core Web Vitals, imagens, etc.
-
-FORMAT OUTPUT:
-Por página, bloco completo. Ao final: "Arquitetura concluída. Aguardando aprovação para avançar ao Agente 5 — Copywriter."`,
-  },
-  {
-    id: 5,
-    emoji: "✍️",
-    name: "Agente 5 — Copywriter",
-    role: "Gera toda a copy do site: hero, benefícios, serviços, sobre, rodapé e CTAs.",
-    color: "hsl(340 80% 52%)",
-    input: "Estrutura do site (Agente 4) + estratégia (Agente 1) + palavras-chave (Agente 2).",
-    output: "Texto completo de cada seção de cada página, seguindo a hierarquia do Arquiteto.",
-    prompt: `Você é um Copywriter especializado em negócios locais brasileiros, com domínio de persuasão, prova social e gatilhos mentais aplicados de forma sutil e humana.
-
-Você receberá a estrutura do site, a estratégia e as palavras-chave. Sua função é escrever TODA a copy do site.
-
-REGRAS ABSOLUTAS DE ESTILO:
-- Linguagem humana, natural, local. Sem jargões corporativos.
-- PROIBIDO usar travessão (—) no estilo IA ("seja X — ou Y").
-- PROIBIDO estrutura "não é X, é Y".
-- PROIBIDO listas genéricas de benefícios sem contexto real.
-- Persuasão real, prova social e gatilhos aplicados de forma sutil, não obvia.
-- O texto precisa parecer escrito por alguém que CONHECE aquele negócio.
-- Se faltar contexto real do cliente, PARE e pergunte antes de escrever.
-- Só avance para o Agente 6 após aprovação explícita do usuário.
-
-ENTREGÁVEIS OBRIGATÓRIOS (por página):
-1. HERO: H1, subheadline, CTA principal
-2. BENEFÍCIOS/DIFERENCIAIS: contextualizados, não genéricos
-3. SERVIÇOS: descrição persuasiva de cada serviço
-4. SOBRE A EMPRESA: história, missão, diferenciais humanos
-5. PROVA SOCIAL: estrutura de depoimentos + onde inserir
-6. CTAs SECUNDÁRIOS: ao longo da página
-7. RODAPÉ: informações de contato, links, frase de impacto
-
-FORMAT OUTPUT:
-Por página e por seção, claramente nomeadas. Ao final: "Copy concluída. Aguardando aprovação para avançar ao Agente 6 — Redator SEO Blog."`,
-  },
-  {
-    id: 6,
-    emoji: "📝",
-    name: "Agente 6 — Redator SEO Blog",
-    role: "Gera artigos completos de blog (mín. 2.500 palavras) com SEO, CTA e interlinking.",
-    color: "hsl(185 75% 40%)",
-    input: "Palavras-chave (Agente 2) + estratégia (Agente 1).",
-    output: "Artigos completos por palavra-chave: introdução, desenvolvimento, fontes reais, links internos, CTA contextual, sugestão de imagens, headings estruturados.",
-    prompt: `Você é um Redator SEO especializado em conteúdo para negócios locais brasileiros, com domínio de otimização semântica e escrita humana de alta qualidade.
-
-Você receberá as palavras-chave e a estratégia. Sua função é gerar artigos completos para o blog do cliente.
-
-REGRAS ABSOLUTAS:
-- Mínimo de 2.500 palavras por artigo.
-- Dois artigos por palavra-chave principal (abordagens diferentes).
-- NUNCA invente dados, estatísticas ou fontes. Se não tiver fonte real verificável, não cite.
-- Introdução que prende — sem "Neste artigo, vamos ver...".
-- Desenvolvimento com informações reais e verificáveis.
-- Sem excesso de bullet points. Fluidez de leitura real.
-- Estilo humano, informativo, sem pegada de IA.
-- Só avance para o Agente 7 após aprovação explícita do usuário.
-
-ENTREGÁVEIS OBRIGATÓRIOS (por artigo):
-1. TÍTULO SEO: com palavra-chave + gancho emocional
-2. META DESCRIPTION: até 155 caracteres
-3. INTRODUÇÃO: gancho + apresentação do problema + promessa do artigo
-4. DESENVOLVIMENTO: seções H2 e H3, fluído, informativo, sem padding
-5. FONTES: links para fontes reais ao longo do texto (somente se verificáveis)
-6. LINKS INTERNOS: mínimo 2 links para outras páginas do site, contextualizados
-7. CTA CONTEXTUAL: no final, incentivando o leitor a contratar o serviço
-8. SUGESTÃO DE IMAGENS: onde inserir e o que mostrar
-9. ESTRUTURA DE HEADINGS: H1, H2s e H3s claramente listados
-
-FORMAT OUTPUT:
-Artigo completo formatado em markdown. Ao final: "Artigo concluído. Aguardando aprovação para avançar ao próximo artigo ou ao Agente 7 — Gerador de Prompt Final."`,
-  },
-  {
-    id: 7,
-    emoji: "🚀",
-    name: "Agente 7 — Gerador de Prompt Final",
-    role: "Transforma tudo em 3 prompts ultra detalhados prontos para Lovable ou Antigravity.",
-    color: "hsl(50 95% 48%)",
-    input: "Todos os entregáveis dos Agentes 1 ao 6 (aprovados pelo usuário).",
-    output: "3 prompts separados: (1) Estrutura e layout, (2) Copy e conteúdo, (3) Blog.",
-    prompt: `Você é um especialista em engenharia de prompts para ferramentas de criação de sites com IA (Lovable e Antigravity).
-
-Você receberá todos os entregáveis dos agentes anteriores. Sua função é transformá-los em 3 prompts ultra detalhados, prontos para uso direto nas ferramentas de criação.
-
-REGRAS ABSOLUTAS:
-- NENHUM prompt pode ser vago. Cada instrução deve ser específica o suficiente para que a IA não precise adivinhar nada.
-- Os prompts devem ser auto-suficientes: quem colar o prompt na ferramenta não precisa de contexto adicional.
-- Não use abreviações ou referências externas. Tudo deve estar explícito dentro do prompt.
-- Os 3 prompts são separados e independentes, mas coerentes entre si.
-
-ENTREGÁVEL 1 — PROMPT DE ESTRUTURA E LAYOUT:
-- Design visual: cores exatas (hex), tipografia, espaçamentos, estilo geral
-- Responsividade: comportamento mobile de cada seção
-- UX: ordem das seções por página, hierarquia visual, fluxo do usuário
-- Componentes: header, hero, cards, formulários, rodapé
-- Animações e micro-interações sugeridas
-- Schema markup a implementar
-- Performance: instruções de otimização de imagens, lazy load, etc.
-
-ENTREGÁVEL 2 — PROMPT DE COPY E CONTEÚDO:
-- Todos os textos organizados por página e por seção
-- H1, H2, H3 de cada página
-- Copy completa de cada seção (hero, benefícios, serviços, sobre, CTAs, rodapé)
-- Indicações de onde usar palavras-chave
-- Tom e estilo de escrita para eventuais ajustes
-
-ENTREGÁVEL 3 — PROMPT DE BLOG:
-- Estrutura dos artigos (headings, seções)
-- Estilo e tom de escrita
-- Regras de interlinking interno
-- Formatação (negrito, listas, citações)
-- Instruções de SEO on-page por artigo
-- CTA padrão de final de artigo
-
-FORMAT OUTPUT:
-Cada prompt em bloco separado, com título claro e delimitadores. Ao final: "Prompts finais entregues. Esteira PDL concluída para este cliente. Pronto para iniciar novo projeto."`,
-  },
+/* ── Agent definitions ── */
+const AGENTS = [
+  { id: 1, emoji: "🧭", label: "Estrategista SEO Local", short: "Estratégia" },
+  { id: 2, emoji: "🔍", label: "Analista de Palavras-chave", short: "Keywords" },
+  { id: 3, emoji: "📍", label: "Especialista Google Meu Negócio", short: "GMB" },
+  { id: 4, emoji: "🏗️", label: "Arquiteto de Site SEO", short: "Estrutura" },
+  { id: 5, emoji: "✍️", label: "Copywriter", short: "Copy" },
+  { id: 6, emoji: "📝", label: "Redator SEO Blog", short: "Blog" },
+  { id: 7, emoji: "🚀", label: "Gerador de Prompt Final", short: "Prompts" },
 ];
+
+/* ── Build client context string from briefing data ── */
+function buildClientContext(client: Client): string {
+  const b: BriefingData = client.briefing_data ?? {};
+  const lines: string[] = [
+    `DADOS DO CLIENTE:`,
+    `Nome: ${client.name}`,
+    `Empresa: ${client.company_name ?? b.company_name ?? "Não informado"}`,
+    `Segmento/Nicho: ${client.segment ?? b.segment ?? "Não informado"}`,
+    `Cidade/Estado: ${b.city_state ?? "Não informado"}`,
+    `Telefone: ${b.phone ?? "Não informado"}`,
+    `WhatsApp: ${b.whatsapp_response_time ?? "Não informado"}`,
+    `Email: ${b.email ?? "Não informado"}`,
+    `Site atual: ${client.site_url ?? b.website ?? "Não possui"}`,
+    `Serviço principal: ${b.main_service ?? "Não informado"}`,
+    `Outros serviços: ${b.other_services ?? "Não informado"}`,
+    `Problema que resolve: ${b.problem_solved ?? "Não informado"}`,
+    `Público-alvo: ${b.audience ?? "Não informado"}`,
+    `Como adquire clientes hoje: ${b.acquisition ?? "Não informado"}`,
+    `Diferenciais: ${b.differentiator ?? "Não informado"}`,
+    `Elogios recorrentes: ${b.praises ?? "Não informado"}`,
+    `Concorrentes: ${b.competitors ?? "Não informado"}`,
+    `Horário de funcionamento: ${b.hours ?? "Não informado"}`,
+    `Formas de atendimento: ${b.service_modes ?? "Não informado"}`,
+    `Formas de pagamento: ${b.payment_methods ?? "Não informado"}`,
+    `Redes sociais: ${b.socials ?? b.instagram ?? "Não informado"}`,
+    `Bio/História: ${b.bio ?? "Não informado"}`,
+    `Slogan: ${b.slogan ?? "Não informado"}`,
+    `Equipe: ${b.team ?? "Não informado"}`,
+    `FAQ do negócio: ${b.faq ?? "Não informado"}`,
+    `Restrições/Observações: ${b.restrictions ?? "Não informado"}`,
+    `Cores da marca: ${client.brand_colors ?? "Não informado"}`,
+    `Anotações internas: ${client.notes ?? "Nenhuma"}`,
+  ];
+  return lines.join("\n");
+}
+
+/* ── System prompts per agent ── */
+function getSystemPrompt(agentId: number, clientCtx: string, previousOutputs: Record<number, string>): string {
+  const prev = (id: number) => previousOutputs[id] ? `\n\n---\nOUTPUT DO AGENTE ${id} (APROVADO):\n${previousOutputs[id]}` : "";
+
+  const base = `Você é um funcionário especializado de uma agência de SEO local brasileira. Você executa tarefas e entrega resultados para que o dono da agência revise e aprove. Você NÃO toma decisões sem aprovação. Se faltar informação essencial, pergunte antes de avançar. Seja direto, profissional e entregue resultados prontos para uso.\n\n${clientCtx}`;
+
+  const prompts: Record<number, string> = {
+    1: `${base}\n\nVOCÊ É: Estrategista SEO Local.\nSUA FUNÇÃO: Com base nos dados do cliente acima, criar o plano estratégico completo do projeto.\nENTREGUE:\n1. Posicionamento do cliente no mercado local\n2. Proposta de valor clara e diferenciada\n3. Estratégia de presença local (GMB, site, diretórios, conteúdo)\n4. Análise de intenção de busca do público-alvo\n5. Arquitetura geral do projeto (quais páginas o site deve ter e por quê)\n6. Observações e oportunidades do segmento\n\nREGRAS: Nunca invente dados. Use APENAS o que está no briefing. Se faltar algo importante, pergunte antes. Tom: consultivo, direto, profissional. Sem linguagem genérica.`,
+
+    2: `${base}${prev(1)}\n\nVOCÊ É: Analista de Palavras-chave.\nSUA FUNÇÃO: Com base na estratégia aprovada, gerar a pesquisa completa de palavras-chave.\nENTREGUE:\n1. Palavras-chave primárias (3–5): nicho + cidade + variações\n2. Palavras-chave secundárias (10–20): bairros, serviços específicos, dores do público\n3. Separação por intenção de busca: Informacional | Transacional | Local\n4. Clusters temáticos com nome de cada cluster\n5. Mapeamento: qual cluster representa qual página do site\n\nREGRAS: Use raciocínio semântico — sem Google Keyword Planner. Foque em buscas locais reais. Evite termos genéricos sem relevância local.`,
+
+    3: `${base}${prev(1)}${prev(2)}\n\nVOCÊ É: Especialista Google Meu Negócio.\nSUA FUNÇÃO: Entregar tudo pronto para copiar e colar na ficha do GMB.\nENTREGUE:\n1. Nome otimizado (orientação: manter ou ajustar + justificativa)\n2. Categoria principal (1 categoria, máxima especificidade)\n3. Categorias secundárias (2–5 relevantes)\n4. Descrição da empresa (exatamente até 750 caracteres — informe o contador XX/750)\n5. Lista de serviços: nome + tipo de preço + descrição persuasiva\n6. Perguntas e respostas estratégicas (mínimo 5 pares Q&A)\n7. Orientação de geolocalização nos textos\n8. Script de solicitação de avaliações + onde posicionar QR Code\n\nREGRAS: Respeite todos os limites de caracteres reais do GMB. Nada que viole as diretrizes do Google. Palavras-chave naturais, nunca em lista forçada no nome.`,
+
+    4: `${base}${prev(1)}${prev(2)}${prev(3)}\n\nVOCÊ É: Arquiteto de Site SEO.\nSUA FUNÇÃO: Entregar a estrutura completa do site.\nENTREGUE POR PÁGINA:\n1. Mapa do site completo com URL slugs\n2. Hierarquia de navegação (menu principal e submenus)\n3. Para cada página: H1 único (com keyword) + H2s + H3s sugeridos + CTA principal\n4. Orientações de UX e responsividade (mobile-first)\n5. Schema markup por página (LocalBusiness, Service, FAQ, Article etc.)\n6. Mapa de interlinking interno entre páginas\n7. Observações técnicas de SEO on-page\n\nREGRAS: Mobile-first obrigatório. Priorize conversão local. Uma keyword primária por página — sem canibalização.`,
+
+    5: `${base}${prev(1)}${prev(2)}${prev(4)}\n\nVOCÊ É: Copywriter especializado em negócios locais brasileiros.\nSUA FUNÇÃO: Escrever toda a copy do site seguindo a estrutura do Arquiteto.\nENTREGUE POR PÁGINA E SEÇÃO:\n- Hero: H1, subheadline, CTA principal\n- Benefícios/Diferenciais: contextualizados, não genéricos\n- Serviços: descrição persuasiva\n- Sobre a empresa: história, missão, diferenciais humanos\n- Prova social: estrutura de depoimentos\n- CTAs secundários ao longo da página\n- Rodapé: contato, links, frase de impacto\n\nREGRAS DE ESTILO OBRIGATÓRIAS:\n- Linguagem humana, natural, local\n- PROIBIDO travessão estilo IA (—)\n- PROIBIDO estrutura "não é X, é Y"\n- PROIBIDO listas genéricas sem contexto real\n- Persuasão sutil, prova social real, gatilhos aplicados com elegância\n- Se faltar contexto do cliente, pergunte antes de escrever`,
+
+    6: `${base}${prev(1)}${prev(2)}\n\nVOCÊ É: Redator SEO especializado em conteúdo para negócios locais.\nSUA FUNÇÃO: Gerar artigos completos para o blog do cliente.\nPARA CADA ARTIGO ENTREGUE:\n1. Título SEO (keyword + gancho emocional)\n2. Meta description (até 155 caracteres)\n3. Introdução que prende (sem "Neste artigo vamos ver...")\n4. Desenvolvimento em H2s e H3s, fluído e informativo\n5. Fontes reais verificáveis ao longo do texto (NUNCA invente)\n6. Mínimo 2 links internos contextualizados para outras páginas\n7. CTA contextual no final incentivando a contratar o serviço\n8. Sugestão de imagens (onde inserir e o que mostrar)\n\nREGRAS: Mínimo 2.500 palavras. 2 artigos por keyword principal. Estilo humano, sem excesso de bullet points, sem pegada de IA. NUNCA invente dados, estatísticas ou fontes.`,
+
+    7: `${base}${prev(1)}${prev(2)}${prev(3)}${prev(4)}${prev(5)}${prev(6)}\n\nVOCÊ É: Engenheiro de Prompts especializado em Lovable e Antigravity.\nSUA FUNÇÃO: Transformar todos os outputs anteriores em 3 prompts ultra detalhados e auto-suficientes para criação do site.\n\nPROMPT 1 — ESTRUTURA E LAYOUT:\n- Design visual: cores exatas (hex), tipografia, espaçamentos, estilo geral\n- Responsividade: comportamento mobile de cada seção\n- UX: ordem das seções, hierarquia visual, fluxo do usuário\n- Componentes: header, hero, cards, formulários, rodapé\n- Animações e micro-interações\n- Schema markup a implementar\n\nPROMPT 2 — COPY E CONTEÚDO:\n- Todos os textos organizados por página e seção\n- H1, H2, H3 de cada página\n- Copy completa (hero, benefícios, serviços, sobre, CTAs, rodapé)\n\nPROMPT 3 — BLOG:\n- Estrutura dos artigos, estilo e tom\n- Regras de interlinking, formatação, SEO on-page\n- CTA padrão de final de artigo\n\nREGRAS: Cada prompt deve ser auto-suficiente. NADA pode ser vago — zero margem para a IA adivinhar algo.`,
+  };
+
+  return prompts[agentId] ?? base;
+}
+
+/* ── Initial states ── */
+function makeInitialAgents(): Record<number, AgentState> {
+  const rec: Record<number, AgentState> = {};
+  AGENTS.forEach((a) => {
+    rec[a.id] = { status: a.id === 1 ? "active" : "locked", output: "", messages: [] };
+  });
+  return rec;
+}
 
 /* ── Component ── */
 export default function AgentesIA() {
-  const [openId, setOpenId] = useState<number | null>(1);
-  const [copied, setCopied] = useState<number | null>(null);
+  const [clients, setClients] = useState<Client[]>([]);
+  const [selectedClientId, setSelectedClientId] = useState<string>("");
+  const [activeAgent, setActiveAgent] = useState(1);
+  const [agents, setAgents] = useState<Record<number, AgentState>>(makeInitialAgents());
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [copiedOutput, setCopiedOutput] = useState(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
 
-  function toggle(id: number) {
-    setOpenId((prev) => (prev === id ? null : id));
+  /* fetch clients */
+  useEffect(() => {
+    supabase.from("clients").select("*").order("name").then(({ data }) => {
+      if (data) setClients(data as unknown as Client[]);
+    });
+  }, []);
+
+  /* scroll to bottom on new message */
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [agents[activeAgent]?.messages]);
+
+  const selectedClient = clients.find((c) => c.id === selectedClientId) ?? null;
+  const currentAgent = agents[activeAgent];
+  const approvedOutputs: Record<number, string> = {};
+  AGENTS.forEach((a) => {
+    if (agents[a.id].status === "done") approvedOutputs[a.id] = agents[a.id].output;
+  });
+
+  /* ── Send message ── */
+  async function sendMessage() {
+    if (!input.trim() || loading) return;
+    if (!selectedClient) { toast.error("Selecione um cliente antes de conversar."); return; }
+    const key = localStorage.getItem("OPENAI_API_KEY");
+    if (!key) { toast.error("Configure sua chave OpenAI em Configurações."); return; }
+
+    const userMsg: Message = { role: "user", content: input.trim() };
+    setInput("");
+
+    const updatedMessages = [...currentAgent.messages, userMsg];
+    setAgents((prev) => ({
+      ...prev,
+      [activeAgent]: { ...prev[activeAgent], messages: updatedMessages },
+    }));
+    setLoading(true);
+
+    try {
+      const systemPrompt = getSystemPrompt(
+        activeAgent,
+        buildClientContext(selectedClient),
+        approvedOutputs
+      );
+
+      const res = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+        body: JSON.stringify({
+          model: "gpt-4o",
+          messages: [
+            { role: "system", content: systemPrompt },
+            ...updatedMessages,
+          ],
+          temperature: 0.7,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error?.message ?? "Erro na API OpenAI");
+      }
+
+      const data = await res.json();
+      const reply = data.choices[0].message.content as string;
+      const assistantMsg: Message = { role: "assistant", content: reply };
+
+      setAgents((prev) => ({
+        ...prev,
+        [activeAgent]: {
+          ...prev[activeAgent],
+          messages: [...updatedMessages, assistantMsg],
+          output: reply,
+        },
+      }));
+    } catch (err: any) {
+      toast.error(err.message ?? "Erro ao chamar a IA");
+    } finally {
+      setLoading(false);
+    }
   }
 
-  async function copyPrompt(agent: Agent) {
-    await navigator.clipboard.writeText(agent.prompt);
-    setCopied(agent.id);
-    setTimeout(() => setCopied(null), 2000);
+  /* ── Approve agent output ── */
+  function approveAndAdvance() {
+    const out = agents[activeAgent].output;
+    if (!out) { toast.error("O agente ainda não entregou nenhum output para aprovar."); return; }
+    const next = activeAgent + 1;
+    setAgents((prev) => {
+      const updated = { ...prev };
+      updated[activeAgent] = { ...updated[activeAgent], status: "done" };
+      if (next <= 7) {
+        updated[next] = { ...updated[next], status: "active" };
+        setActiveAgent(next);
+      }
+      return updated;
+    });
+    toast.success(`Agente ${activeAgent} aprovado! Avançando para o Agente ${next}.`);
   }
+
+  /* ── Reset agent ── */
+  function resetAgent(id: number) {
+    setAgents((prev) => ({
+      ...prev,
+      [id]: { status: "active", output: "", messages: [] },
+    }));
+    setActiveAgent(id);
+    // lock all agents after this
+    for (let i = id + 1; i <= 7; i++) {
+      setAgents((prev) => ({ ...prev, [i]: { ...prev[i], status: "locked", output: "", messages: [] } }));
+    }
+  }
+
+  /* ── Copy last output ── */
+  async function copyOutput() {
+    const out = agents[activeAgent].output;
+    if (!out) return;
+    await navigator.clipboard.writeText(out);
+    setCopiedOutput(true);
+    setTimeout(() => setCopiedOutput(false), 2000);
+  }
+
+  /* ── Handle Enter key ── */
+  function handleKey(e: React.KeyboardEvent) {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+  }
+
+  const agentDef = AGENTS.find((a) => a.id === activeAgent)!;
 
   return (
-    <div className="p-6 max-w-5xl space-y-6">
-      {/* Header */}
-      <div className="flex items-start gap-4">
-        <div className="h-12 w-12 rounded-xl grid place-items-center shrink-0" style={{ background: "linear-gradient(135deg, hsl(220 80% 55%), hsl(262 80% 58%))" }}>
-          <Bot className="h-6 w-6 text-white" />
+    <div className="flex h-full min-h-0">
+      {/* ── Left sidebar ── */}
+      <aside className="w-64 shrink-0 border-r flex flex-col bg-sidebar">
+        {/* Client selector */}
+        <div className="p-4 border-b space-y-2">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Cliente ativo</p>
+          <Select value={selectedClientId} onValueChange={(v) => { setSelectedClientId(v); setAgents(makeInitialAgents()); setActiveAgent(1); }}>
+            <SelectTrigger className="w-full text-sm">
+              <SelectValue placeholder="Selecionar cliente…" />
+            </SelectTrigger>
+            <SelectContent>
+              {clients.map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.name}
+                  {c.company_name ? ` — ${c.company_name}` : ""}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {selectedClient && (
+            <p className="text-[11px] text-muted-foreground">
+              {selectedClient.segment ?? "Segmento não informado"} · {(selectedClient.briefing_data as BriefingData)?.city_state ?? "Cidade não informada"}
+            </p>
+          )}
         </div>
-        <div>
-          <h1 className="text-2xl font-bold">Equipe de Agentes IA — PDL SEO</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            7 agentes especializados em esteira sequencial. Cada agente recebe o que o anterior entregou e só avança com sua aprovação.
-          </p>
-        </div>
-      </div>
 
-      {/* Pipeline visual */}
-      <div className="flex items-center gap-1 flex-wrap">
-        {AGENTS.map((a, i) => (
-          <div key={a.id} className="flex items-center gap-1">
-            <button
-              onClick={() => toggle(a.id)}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold text-white transition-opacity hover:opacity-80"
-              style={{ background: a.color }}
-            >
-              <span>{a.emoji}</span>
-              <span>A{a.id}</span>
-            </button>
-            {i < AGENTS.length - 1 && (
-              <span className="text-muted-foreground text-xs">→</span>
+        {/* Pipeline */}
+        <div className="flex-1 overflow-auto p-3 space-y-1">
+          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest px-1 mb-2">Esteira PDL</p>
+          {AGENTS.map((a, i) => {
+            const st = agents[a.id].status;
+            const isActive = a.id === activeAgent;
+            return (
+              <button
+                key={a.id}
+                disabled={st === "locked"}
+                onClick={() => st !== "locked" && setActiveAgent(a.id)}
+                className={cn(
+                  "w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left text-sm transition-all",
+                  isActive && "bg-primary/10 text-primary font-semibold",
+                  !isActive && st === "done" && "text-green-600 dark:text-green-400 hover:bg-green-500/10",
+                  !isActive && st === "active" && "text-foreground hover:bg-accent/50",
+                  st === "locked" && "opacity-35 cursor-not-allowed"
+                )}
+              >
+                <span className="text-base shrink-0">{a.emoji}</span>
+                <span className="flex-1 leading-tight text-xs">{a.label}</span>
+                {st === "done" && <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />}
+                {st === "locked" && <Lock className="h-3 w-3 shrink-0" />}
+                {st === "active" && isActive && <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Footer note */}
+        <div className="p-3 border-t text-[10px] text-muted-foreground leading-relaxed">
+          Cada agente só avança com sua aprovação explícita.
+        </div>
+      </aside>
+
+      {/* ── Main chat area ── */}
+      <div className="flex-1 min-w-0 flex flex-col">
+        {/* Header */}
+        <div className="border-b px-5 py-3 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="h-9 w-9 rounded-lg bg-primary/10 grid place-items-center text-lg">
+              {agentDef.emoji}
+            </div>
+            <div>
+              <div className="font-semibold text-sm">{agentDef.label}</div>
+              <div className="text-xs text-muted-foreground">
+                {selectedClient ? `${selectedClient.name} · ${selectedClient.company_name ?? ""}` : "Nenhum cliente selecionado"}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {agents[activeAgent].output && (
+              <Button size="sm" variant="ghost" className="gap-1.5 text-xs h-8" onClick={copyOutput}>
+                {copiedOutput ? <><CheckCheck className="h-3.5 w-3.5 text-green-500" />Copiado</> : <><Copy className="h-3.5 w-3.5" />Copiar output</>}
+              </Button>
+            )}
+            {agents[activeAgent].status !== "locked" && agents[activeAgent].messages.length > 0 && (
+              <Button size="sm" variant="ghost" className="gap-1.5 text-xs h-8" onClick={() => resetAgent(activeAgent)}>
+                <RotateCcw className="h-3.5 w-3.5" /> Reiniciar
+              </Button>
+            )}
+            {agents[activeAgent].output && agents[activeAgent].status !== "done" && (
+              <Button size="sm" className="gap-1.5 text-xs h-8" onClick={approveAndAdvance}>
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                Aprovar e avançar
+              </Button>
+            )}
+            {agents[activeAgent].status === "done" && (
+              <Badge variant="outline" className="text-green-600 border-green-500/40 bg-green-500/5 gap-1">
+                <CheckCircle2 className="h-3 w-3" /> Aprovado
+              </Badge>
             )}
           </div>
-        ))}
-      </div>
+        </div>
 
-      {/* Agent cards */}
-      <div className="space-y-3">
-        {AGENTS.map((agent) => {
-          const isOpen = openId === agent.id;
-          return (
-            <Card key={agent.id} className="overflow-hidden">
-              <button
-                onClick={() => toggle(agent.id)}
-                className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-accent/30 transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <span
-                    className="h-8 w-8 rounded-lg grid place-items-center text-base shrink-0"
-                    style={{ background: agent.color + "22", border: `1.5px solid ${agent.color}44` }}
-                  >
-                    {agent.emoji}
-                  </span>
-                  <div>
-                    <div className="font-semibold text-sm">{agent.name}</div>
-                    <div className="text-xs text-muted-foreground mt-0.5">{agent.role}</div>
+        {/* Messages */}
+        <ScrollArea className="flex-1 px-5 py-4">
+          {!selectedClient ? (
+            <div className="flex flex-col items-center justify-center h-full min-h-[300px] text-center gap-3 text-muted-foreground">
+              <BrainCircuit className="h-10 w-10 opacity-30" />
+              <p className="text-sm">Selecione um cliente no painel lateral para iniciar a esteira.</p>
+            </div>
+          ) : agents[activeAgent].messages.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full min-h-[300px] text-center gap-3">
+              <div className="text-4xl">{agentDef.emoji}</div>
+              <p className="font-semibold">Agente {activeAgent} — {agentDef.label}</p>
+              <p className="text-sm text-muted-foreground max-w-sm">
+                {activeAgent < 7
+                  ? `Diga "Pode começar" para o agente iniciar com base nos dados do cliente ${selectedClient.name}.`
+                  : `Diga "Gerar os 3 prompts finais" para o agente compilar tudo em prompts prontos para o Lovable/Antigravity.`}
+              </p>
+              <Button variant="outline" className="mt-2 text-sm" onClick={() => { setInput(activeAgent < 7 ? "Pode começar." : "Gerar os 3 prompts finais."); }}>
+                Usar sugestão
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-4 pb-4">
+              {agents[activeAgent].messages.map((msg, i) => (
+                <div key={i} className={cn("flex gap-3", msg.role === "user" && "flex-row-reverse")}>
+                  <div className={cn("h-7 w-7 rounded-full shrink-0 grid place-items-center text-xs", msg.role === "assistant" ? "bg-primary/10" : "bg-muted")}>
+                    {msg.role === "assistant" ? agentDef.emoji : <User className="h-3.5 w-3.5" />}
                   </div>
+                  <Card className={cn("max-w-[80%] px-4 py-3 text-sm whitespace-pre-wrap leading-relaxed", msg.role === "user" && "bg-primary/5 border-primary/20")}>
+                    {msg.content}
+                  </Card>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <Badge variant="outline" className="text-[10px]" style={{ borderColor: agent.color + "66", color: agent.color }}>
-                    Agente {agent.id}
-                  </Badge>
-                  {isOpen ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+              ))}
+              {loading && (
+                <div className="flex gap-3">
+                  <div className="h-7 w-7 rounded-full bg-primary/10 shrink-0 grid place-items-center text-xs">{agentDef.emoji}</div>
+                  <Card className="px-4 py-3 text-sm flex items-center gap-2 text-muted-foreground">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Pensando…
+                  </Card>
                 </div>
-              </button>
-
-              {isOpen && (
-                <CardContent className="pt-0 pb-5 space-y-4">
-                  {/* Input/Output */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div className="rounded-lg p-3 bg-muted/40 border border-border/50">
-                      <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">📥 Entrada</div>
-                      <p className="text-xs text-foreground/80">{agent.input}</p>
-                    </div>
-                    <div className="rounded-lg p-3 bg-muted/40 border border-border/50">
-                      <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">📤 Saída</div>
-                      <p className="text-xs text-foreground/80">{agent.output}</p>
-                    </div>
-                  </div>
-
-                  {/* Prompt block */}
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <Zap className="h-3.5 w-3.5 text-primary" />
-                        <span className="text-xs font-semibold">Prompt do Agente</span>
-                      </div>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 text-xs gap-1.5"
-                        onClick={() => copyPrompt(agent)}
-                      >
-                        {copied === agent.id ? (
-                          <><CheckCheck className="h-3 w-3 text-green-500" /> Copiado!</>
-                        ) : (
-                          <><Copy className="h-3 w-3" /> Copiar prompt</>
-                        )}
-                      </Button>
-                    </div>
-                    <pre className="text-xs bg-muted/60 border border-border/50 rounded-lg p-4 whitespace-pre-wrap font-mono leading-relaxed overflow-auto max-h-80">
-                      {agent.prompt}
-                    </pre>
-                  </div>
-
-                  {/* Restriction notice */}
-                  <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2">
-                    <span className="text-amber-500 text-sm mt-0.5">⚠️</span>
-                    <p className="text-xs text-amber-700 dark:text-amber-400">
-                      <strong>Regra da esteira:</strong> Este agente só avança para o próximo após sua aprovação explícita. Nenhum agente toma decisões sem validação.
-                    </p>
-                  </div>
-                </CardContent>
               )}
-            </Card>
-          );
-        })}
-      </div>
+              <div ref={bottomRef} />
+            </div>
+          )}
+        </ScrollArea>
 
-      {/* Footer */}
-      <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 text-sm text-center text-muted-foreground">
-        <strong className="text-foreground">Esteira completa:</strong> Briefing → Estratégia → Palavras-chave → GMB → Estrutura → Copy → Blog → Prompt Final
-        <br />
-        <span className="text-xs">Para iniciar, copie o prompt do Agente 1 e cole em qualquer LLM (Claude, ChatGPT, Gemini) junto com o briefing do cliente.</span>
+        {/* Input area */}
+        {agents[activeAgent].status !== "locked" && (
+          <div className="border-t px-4 py-3 shrink-0 flex gap-2 items-end">
+            <Textarea
+              className="flex-1 min-h-[60px] max-h-[140px] resize-none text-sm"
+              placeholder={selectedClient ? "Digite sua mensagem (Enter para enviar, Shift+Enter para nova linha)…" : "Selecione um cliente primeiro…"}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKey}
+              disabled={!selectedClient || loading || agents[activeAgent].status === "locked"}
+            />
+            <Button
+              size="icon"
+              className="h-10 w-10 shrink-0"
+              onClick={sendMessage}
+              disabled={!input.trim() || loading || !selectedClient}
+            >
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            </Button>
+          </div>
+        )}
+
+        {agents[activeAgent].status === "done" && (
+          <div className="border-t px-5 py-3 bg-green-500/5 text-sm text-green-700 dark:text-green-400 flex items-center gap-2 shrink-0">
+            <CheckCircle2 className="h-4 w-4" />
+            Output aprovado. Clique em outro agente no painel para continuar ou revisar.
+          </div>
+        )}
       </div>
     </div>
   );
