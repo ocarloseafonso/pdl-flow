@@ -1,4 +1,5 @@
 import { Client } from "./types";
+import { GMN_KNOWLEDGE } from "./gmnKnowledge";
 
 /* ═══════════════════════════════════════════════════
    TYPES
@@ -140,7 +141,18 @@ function prevOutputs(state: AllAgentState): string {
 /* ═══════════════════════════════════════════════════
    SYSTEM PROMPTS
 ═══════════════════════════════════════════════════ */
-const BASE_RULE = `REGRA CRÍTICA: O briefing completo está no contexto. USE TODOS OS DADOS DISPONÍVEIS. NÃO peça informações que já estão no briefing. Se um campo estiver vazio, trabalhe com o que tem e aponte lacunas apenas ao final. Nunca bloqueie a entrega por falta de dados.`;
+const BASE_RULE = `REGRA CRÍTICA: O briefing completo está no contexto. USE TODOS OS DADOS DISPONÍVEIS. NÃO peça informações que já estão no briefing. Se um campo estiver vazio, trabalhe com o que tem e aponte lacunas apenas ao final. Nunca bloqueie a entrega por falta de dados.
+
+Você opera com base na metodologia PDL e no documento GMN (Google Meu Negócio) desta agência. SEMPRE aplique esses conceitos:
+- O GMB não é opcional: é parte central de TODO projeto de SEO local. A criação e otimização da ficha GMB é uma entrega obrigatória, não uma sugestão.
+- E-E-A-T + YMYL: avalie o nicho e adapte a estratégia ao nível de rigor exigido pelo algoritmo.
+- Schema Markup obrigatório: Home (LocalBusiness), Sobre (Organization/Person), Serviços (Service), FAQ.
+- sameAs: todos os perfis sociais e diretórios de classe devem ser listados no código do site.
+- Categorias GMB: máximo 3, baseadas em análise dos concorrentes que já ranqueiam.
+- Date de abertura: sempre espelhada no Schema foundingDate do site.
+- Serviço vs. Produto: NUNCA confundir nos schemas e nas abas do GMB.
+
+${GMN_KNOWLEDGE}`;
 
 export function getSystemPrompt(agentId: number, clientCtx: string, state: AllAgentState): string {
   const prev = prevOutputs(state);
