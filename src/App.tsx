@@ -14,6 +14,7 @@ import Prompts from "./pages/Prompts";
 import Config from "./pages/Config";
 import GuiaExecucao from "./pages/GuiaExecucao";
 import Briefing from "./pages/Briefing";
+import AgentesIA from "./pages/AgentesIA";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -35,6 +36,7 @@ const App = () => (
               <Route path="/agenda" element={<Agenda />} />
               <Route path="/prompts" element={<Prompts />} />
               <Route path="/guia" element={<GuiaExecucao />} />
+              <Route path="/agentes" element={<AgentesIA />} />
               <Route path="/config" element={<Config />} />
             </Route>
             <Route path="*" element={<NotFound />} />
