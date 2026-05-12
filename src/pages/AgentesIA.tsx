@@ -35,37 +35,55 @@ const AGENTS = [
 
 /* ── Build client context string from briefing data ── */
 function buildClientContext(client: Client): string {
-  const b: BriefingData = client.briefing_data ?? {};
+  const b = (client.briefing_data ?? {}) as Record<string, unknown>;
+
+  // Named fields (always included)
   const lines: string[] = [
-    `DADOS DO CLIENTE:`,
-    `Nome: ${client.name}`,
-    `Empresa: ${client.company_name ?? b.company_name ?? "Não informado"}`,
-    `Segmento/Nicho: ${client.segment ?? b.segment ?? "Não informado"}`,
-    `Cidade/Estado: ${b.city_state ?? "Não informado"}`,
-    `Telefone: ${b.phone ?? "Não informado"}`,
-    `WhatsApp: ${b.whatsapp_response_time ?? "Não informado"}`,
-    `Email: ${b.email ?? "Não informado"}`,
-    `Site atual: ${client.site_url ?? b.website ?? "Não possui"}`,
-    `Serviço principal: ${b.main_service ?? "Não informado"}`,
-    `Outros serviços: ${b.other_services ?? "Não informado"}`,
-    `Problema que resolve: ${b.problem_solved ?? "Não informado"}`,
-    `Público-alvo: ${b.audience ?? "Não informado"}`,
-    `Como adquire clientes hoje: ${b.acquisition ?? "Não informado"}`,
-    `Diferenciais: ${b.differentiator ?? "Não informado"}`,
-    `Elogios recorrentes: ${b.praises ?? "Não informado"}`,
-    `Concorrentes: ${b.competitors ?? "Não informado"}`,
-    `Horário de funcionamento: ${b.hours ?? "Não informado"}`,
-    `Formas de atendimento: ${b.service_modes ?? "Não informado"}`,
-    `Formas de pagamento: ${b.payment_methods ?? "Não informado"}`,
-    `Redes sociais: ${b.socials ?? b.instagram ?? "Não informado"}`,
-    `Bio/História: ${b.bio ?? "Não informado"}`,
-    `Slogan: ${b.slogan ?? "Não informado"}`,
-    `Equipe: ${b.team ?? "Não informado"}`,
-    `FAQ do negócio: ${b.faq ?? "Não informado"}`,
-    `Restrições/Observações: ${b.restrictions ?? "Não informado"}`,
-    `Cores da marca: ${client.brand_colors ?? "Não informado"}`,
-    `Anotações internas: ${client.notes ?? "Nenhuma"}`,
+    `=== BRIEFING COMPLETO DO CLIENTE ===`,
+    `Nome do cliente: ${client.name}`,
+    `Empresa/Nome comercial: ${client.company_name ?? b["company_name"] ?? "não informado"}`,
+    `Segmento/Nicho: ${client.segment ?? b["segment"] ?? "não informado"}`,
+    `Cidade/Estado: ${b["city_state"] ?? "não informado"}`,
+    `Telefone: ${b["phone"] ?? "não informado"}`,
+    `WhatsApp: ${b["whatsapp"] ?? b["whatsapp_response_time"] ?? "não informado"}`,
+    `E-mail: ${b["email"] ?? "não informado"}`,
+    `Site atual: ${client.site_url ?? b["website"] ?? "não possui"}`,
+    `Instagram: ${b["instagram"] ?? b["socials"] ?? b["other_socials"] ?? "não informado"}`,
+    `Redes sociais: ${b["socials"] ?? b["other_socials"] ?? "não informado"}`,
+    `Serviço principal: ${b["main_service"] ?? "não informado"}`,
+    `Outros serviços: ${b["other_services"] ?? "não informado"}`,
+    `Problema que resolve: ${b["problem_solved"] ?? "não informado"}`,
+    `Público-alvo: ${b["audience"] ?? "não informado"}`,
+    `Como adquire clientes hoje: ${b["acquisition"] ?? "não informado"}`,
+    `Diferenciais: ${b["differentiator"] ?? "não informado"}`,
+    `Elogios recorrentes: ${b["praises"] ?? "não informado"}`,
+    `Concorrentes: ${b["competitors"] ?? "não informado"}`,
+    `Horário de funcionamento: ${b["hours"] ?? "não informado"}`,
+    `Formas de atendimento: ${b["service_modes"] ?? "não informado"}`,
+    `Formas de pagamento: ${b["payment_methods"] ?? "não informado"}`,
+    `Agendamento: ${b["scheduling"] ?? "não informado"}`,
+    `Atende sem agendamento: ${b["walkin"] ?? "não informado"}`,
+    `Capacidade diária: ${b["daily_capacity"] ?? "não informado"}`,
+    `Duração média do atendimento: ${b["avg_duration"] ?? "não informado"}`,
+    `Bio/História: ${b["bio"] ?? "não informado"}`,
+    `Slogan: ${b["slogan"] ?? "não informado"}`,
+    `Equipe: ${b["team"] ?? "não informado"}`,
+    `FAQ do negócio: ${b["faq"] ?? "não informado"}`,
+    `Restrições/Observações: ${b["restrictions"] ?? "não informado"}`,
+    `Áreas de atuação: ${b["areas"] ?? "não informado"}`,
+    `Ambient/Estrutura: ${b["ambient"] ?? "não informado"}`,
+    `Wi-Fi: ${b["wifi"] ?? "não informado"}`,
+    `Estacionamento: ${b["parking"] ?? "não informado"}`,
+    `Acessibilidade: ${b["accessibility"] ?? "não informado"}`,
+    `Pet-friendly/Kids: ${b["kid_friendly"] ?? "não informado"}`,
+    `Cores da marca: ${client.brand_colors ?? "não informado"}`,
+    `Anotações internas: ${client.notes ?? "nenhuma"}`,
+    ``,
+    `=== DADOS BRUTOS DO BRIEFING (JSON completo) ===`,
+    JSON.stringify(b, null, 2),
+    `=== FIM DO BRIEFING ===`,
   ];
+
   return lines.join("\n");
 }
 
@@ -73,7 +91,11 @@ function buildClientContext(client: Client): string {
 function getSystemPrompt(agentId: number, clientCtx: string, previousOutputs: Record<number, string>): string {
   const prev = (id: number) => previousOutputs[id] ? `\n\n---\nOUTPUT DO AGENTE ${id} (APROVADO):\n${previousOutputs[id]}` : "";
 
-  const base = `Você é um funcionário especializado de uma agência de SEO local brasileira. Você executa tarefas e entrega resultados para que o dono da agência revise e aprove. Você NÃO toma decisões sem aprovação. Se faltar informação essencial, pergunte antes de avançar. Seja direto, profissional e entregue resultados prontos para uso.\n\n${clientCtx}`;
+  const base = `Você é um funcionário especializado de uma agência de SEO local brasileira. Você executa tarefas com base nas informações do cliente fornecidas abaixo e entrega resultados completos para que o dono da agência revise.
+
+REGRA CRÍTICA: O briefing completo do cliente está no contexto abaixo. USE TODAS AS INFORMAÇÕES DISPONÍVEIS. NÃO peça informações que já estão no briefing. Se um campo estiver como "não informado", trabalhe com o que está disponível e sinalize apenas ao final o que pode ser complementado depois. Nunca bloqueie a entrega por falta de dados — entregue com o que tem.
+
+${clientCtx}`;
 
   const prompts: Record<number, string> = {
     1: `${base}\n\nVOCÊ É: Estrategista SEO Local.\nSUA FUNÇÃO: Com base nos dados do cliente acima, criar o plano estratégico completo do projeto.\nENTREGUE:\n1. Posicionamento do cliente no mercado local\n2. Proposta de valor clara e diferenciada\n3. Estratégia de presença local (GMB, site, diretórios, conteúdo)\n4. Análise de intenção de busca do público-alvo\n5. Arquitetura geral do projeto (quais páginas o site deve ter e por quê)\n6. Observações e oportunidades do segmento\n\nREGRAS: Nunca invente dados. Use APENAS o que está no briefing. Se faltar algo importante, pergunte antes. Tom: consultivo, direto, profissional. Sem linguagem genérica.`,
