@@ -4,7 +4,7 @@ import { Client } from "@/lib/types";
 import {
   AGENTS, PIPELINE, AllAgentState, Message,
   makeInitialState, loadSession, saveSession, clearSession,
-  buildClientContext, getSystemPrompt,
+  buildClientContext, getSystemPrompt, buildContextMessages,
   callRegularAgent, callSeniorAgent,
 } from "@/lib/agentConfig";
 import { Button } from "@/components/ui/button";
@@ -85,9 +85,12 @@ export default function AgentesIA() {
 
     try {
       const systemPrompt = getSystemPrompt(activeAgent, buildClientContext(selectedClient), agentState);
+      // Build context messages from ALL previously approved agents (injected at call time, not stored)
+      const contextMessages = buildContextMessages(agentState, activeAgent);
+
       const reply = agentDef.isSenior
-        ? await callSeniorAgent(updatedMsgs, systemPrompt, key)
-        : await callRegularAgent(updatedMsgs, systemPrompt, key);
+        ? await callSeniorAgent(updatedMsgs, contextMessages, systemPrompt, key)
+        : await callRegularAgent(updatedMsgs, contextMessages, systemPrompt, key);
 
       const s2: AllAgentState = {
         ...s1,

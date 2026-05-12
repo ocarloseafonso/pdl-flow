@@ -119,23 +119,62 @@ export function buildClientContext(client: Client): string {
 }
 
 /* ═══════════════════════════════════════════════════
-   APPROVED OUTPUTS SUMMARY
+   APPROVED OUTPUTS SUMMARY (used in system prompt)
 ═══════════════════════════════════════════════════ */
+export const AGENT_LABELS: Record<number, string> = {
+  1: "Estrategista SEO Local",
+  2: "Analista de Palavras-chave",
+  3: "Especialista GMB",
+  4: "Arquiteto de Site SEO",
+  5: "Copywriter",
+  6: "Redator SEO Blog",
+  101: "Revisor Sênior — Estratégia",
+  102: "Revisor Sênior — Keywords",
+  103: "Revisor Sênior — GMB",
+  104: "Revisor Sênior — Estrutura",
+  105: "Revisor Sênior — Copy",
+  106: "Revisor Sênior — Blog",
+  7: "Gerador de Prompt Final",
+};
+
 function prevOutputs(state: AllAgentState): string {
   const parts: string[] = [];
-  const labels: Record<number, string> = {
-    1: "Estratégia SEO", 2: "Palavras-chave", 3: "GMB",
-    4: "Estrutura do Site", 5: "Copy", 6: "Blog",
-    101: "Revisão Sênior — Estratégia", 102: "Revisão Sênior — Keywords",
-    103: "Revisão Sênior — GMB", 104: "Revisão Sênior — Estrutura",
-    105: "Revisão Sênior — Copy", 106: "Revisão Sênior — Blog",
-  };
   PIPELINE.forEach((id) => {
     if (state[id]?.status === "done" && state[id]?.output) {
-      parts.push(`\n\n--- OUTPUT APROVADO: ${labels[id] ?? `Agente ${id}`} ---\n${state[id].output}`);
+      parts.push(`\n\n--- OUTPUT APROVADO: ${AGENT_LABELS[id] ?? `Agente ${id}`} ---\n${state[id].output}`);
     }
   });
   return parts.join("");
+}
+
+/**
+ * Builds injected context messages from all previously approved agents.
+ * These are prepended to the conversation at API call time (NOT stored in state)
+ * so the model treats them as real conversation history rather than distant system text.
+ */
+export function buildContextMessages(state: AllAgentState, currentAgentId: number): Message[] {
+  const doneIds = PIPELINE.filter(
+    (id) => id !== currentAgentId && state[id]?.status === "done" && state[id]?.output
+  );
+  if (doneIds.length === 0) return [];
+
+  let context = "=== HISTÓRICO COMPLETO DAS FASES ANTERIORES (APROVADAS PELO CLIENTE) ===\n\n";
+  context += "ATENÇÃO: Estas são as decisões já tomadas e APROVADAS. Sua resposta DEVE:\n";
+  context += "1. Ser 100% coerente com tudo que foi definido abaixo\n";
+  context += "2. Incorporar as melhorias sugeridas pelos revisores sêniors\n";
+  context += "3. Dar continuidade direta ao projeto sem contradizer nada que já foi validado\n\n";
+
+  doneIds.forEach((id) => {
+    context += `---\n✅ ${AGENT_LABELS[id] ?? `Agente ${id}`}:\n${state[id].output}\n\n`;
+  });
+
+  context += "=== FIM DO HISTÓRICO ===\n";
+  context += "Sua próxima resposta deve expandir, complementar e dar continuidade coerente a tudo aprovado acima.";
+
+  return [
+    { role: "user" as Role, content: "Internalize o histórico completo das fases anteriores aprovadas:" },
+    { role: "assistant" as Role, content: context },
+  ];
 }
 
 /* ═══════════════════════════════════════════════════
@@ -193,9 +232,10 @@ export function getSystemPrompt(agentId: number, clientCtx: string, state: AllAg
    API CALLS
 ═══════════════════════════════════════════════════ */
 
-/** Regular agents — Chat Completions */
+/** Regular agents — Chat Completions with injected context messages */
 export async function callRegularAgent(
   messages: Message[],
+  contextMessages: Message[],
   systemPrompt: string,
   apiKey: string
 ): Promise<string> {
@@ -204,7 +244,11 @@ export async function callRegularAgent(
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
       model: "gpt-4o",
-      messages: [{ role: "system", content: systemPrompt }, ...messages],
+      messages: [
+        { role: "system", content: systemPrompt },
+        ...contextMessages,   // injected history — treated as real conversation
+        ...messages,          // actual user conversation
+      ],
       temperature: 0.7,
     }),
   });
@@ -219,13 +263,15 @@ export async function callRegularAgent(
 /** Senior agents — Responses API with web search + deep reasoning */
 export async function callSeniorAgent(
   messages: Message[],
+  contextMessages: Message[],
   systemPrompt: string,
   apiKey: string
 ): Promise<string> {
-  // Build input: system context + conversation
+  // Build input: system context + injected history + conversation
+  const allMsgs = [...contextMessages, ...messages];
   const fullInput = [
     systemPrompt,
-    ...messages.map((m) => `\n\n[${m.role === "user" ? "USUÁRIO" : "ASSISTENTE"}]: ${m.content}`),
+    ...allMsgs.map((m) => `\n\n[${m.role === "user" ? "USUÁRIO" : "ASSISTENTE"}]: ${m.content}`),
   ].join("");
 
   try {
@@ -241,7 +287,6 @@ export async function callSeniorAgent(
 
     if (res.ok) {
       const data = await res.json();
-      // Extract text from Responses API output
       const textItems = (data.output ?? []).filter((o: Record<string, unknown>) => o.type === "message");
       const text = textItems
         .flatMap((o: Record<string, unknown>) => (o.content as Record<string, unknown>[]) ?? [])
@@ -254,5 +299,5 @@ export async function callSeniorAgent(
 
   // Fallback: regular call with chain-of-thought prompt
   const augmented = `${systemPrompt}\n\nAntes de responder, raciocine passo a passo internamente sobre cada ponto. Pense como um especialista sênior com 15+ anos de experiência.`;
-  return callRegularAgent(messages, augmented, apiKey);
+  return callRegularAgent(messages, contextMessages, augmented, apiKey);
 }
