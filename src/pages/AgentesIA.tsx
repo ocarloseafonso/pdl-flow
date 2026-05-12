@@ -149,16 +149,34 @@ export default function AgentesIA() {
     const newState: AllAgentState = {
       ...agentState,
       [activeAgent]: { ...currentState, status: "done" },
-      ...(nextId ? { [nextId]: { ...agentState[nextId], status: "active" } } : {}),
+      // Only unlock next agent if it's still locked — don't touch already active/done agents
+      ...(nextId && agentState[nextId]?.status === "locked"
+        ? { [nextId]: { ...agentState[nextId], status: "active" } }
+        : {}),
     };
     setAgentState(newState);
     persist(newState);
     if (nextId) {
       setActiveAgent(nextId);
-      toast.success(`Aprovado! ${nextId >= 100 ? "🎓 Revisor Sênior ativado." : "Próximo agente desbloqueado."}`);
+      const nextWasLocked = agentState[nextId]?.status === "locked";
+      toast.success(nextWasLocked
+        ? `Aprovado! ${nextId >= 100 ? "🎓 Revisor Sênior ativado." : "Próximo agente desbloqueado."}`
+        : "Aprovado! Próximo agente já estava disponível.");
     } else {
       toast.success("Pipeline completo!");
     }
+  }
+
+  /* ── Reopen agent — unlock without clearing anything ── */
+  function reopenAgent(id: number) {
+    const newState: AllAgentState = {
+      ...agentState,
+      [id]: { ...agentState[id], status: "active" },
+    };
+    setAgentState(newState);
+    persist(newState);
+    setActiveAgent(id);
+    toast.info("Agente reaberto. Histórico preservado — envie novas mensagens ou reaplique.");
   }
 
   /* ── Reset single agent ── */
@@ -247,33 +265,43 @@ export default function AgentesIA() {
         <ScrollArea className="flex-1">
           <div className="p-2 space-y-0.5">
             <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest px-2 py-1">Esteira PDL</p>
-            {PIPELINE.map((id, idx) => {
+            {PIPELINE.map((id) => {
               const def = AGENTS.find(a => a.id === id)!;
               const st = agentState[id]?.status ?? "locked";
               const isActive = id === activeAgent;
               return (
-                <button
-                  key={id}
-                  disabled={st === "locked"}
-                  onClick={() => st !== "locked" && setActiveAgent(id)}
-                  className={cn(
-                    "w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left transition-all",
-                    def.isSenior && "ml-3",
-                    isActive && (def.isSenior ? "bg-amber-500/15 text-amber-700 dark:text-amber-400 font-semibold" : "bg-primary/10 text-primary font-semibold"),
-                    !isActive && st === "done" && "text-green-600 dark:text-green-400 hover:bg-green-500/10",
-                    !isActive && st === "active" && !def.isSenior && "text-foreground hover:bg-accent/50",
-                    !isActive && st === "active" && def.isSenior && "text-amber-600 dark:text-amber-400 hover:bg-amber-500/10",
-                    st === "locked" && "opacity-30 cursor-not-allowed",
+                <div key={id} className={cn("group relative", def.isSenior && "ml-3")}>
+                  <button
+                    disabled={st === "locked"}
+                    onClick={() => st !== "locked" && setActiveAgent(id)}
+                    className={cn(
+                      "w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left transition-all pr-7",
+                      isActive && (def.isSenior ? "bg-amber-500/15 text-amber-700 dark:text-amber-400 font-semibold" : "bg-primary/10 text-primary font-semibold"),
+                      !isActive && st === "done" && "text-green-600 dark:text-green-400 hover:bg-green-500/10",
+                      !isActive && st === "active" && !def.isSenior && "text-foreground hover:bg-accent/50",
+                      !isActive && st === "active" && def.isSenior && "text-amber-600 dark:text-amber-400 hover:bg-amber-500/10",
+                      st === "locked" && "opacity-30 cursor-not-allowed",
+                    )}
+                  >
+                    <span className={cn("text-sm shrink-0", def.isSenior && "text-amber-500")}>
+                      {def.emoji}
+                    </span>
+                    <span className="flex-1 leading-tight text-[11px] truncate">{def.label}</span>
+                    {st === "done" && <CheckCircle2 className="h-3 w-3 text-green-500 shrink-0" />}
+                    {st === "locked" && <Lock className="h-2.5 w-2.5 shrink-0" />}
+                    {st === "active" && isActive && <ChevronRight className="h-3 w-3 shrink-0" />}
+                  </button>
+                  {/* Reabrir button — only for done agents, appears on hover */}
+                  {st === "done" && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); reopenAgent(id); }}
+                      title="Reabrir agente (preserva histórico)"
+                      className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity h-5 px-1 rounded text-[9px] font-medium bg-amber-500/15 text-amber-700 dark:text-amber-400 hover:bg-amber-500/25 flex items-center gap-0.5"
+                    >
+                      ↩
+                    </button>
                   )}
-                >
-                  <span className={cn("text-sm shrink-0", def.isSenior && "text-amber-500")}>
-                    {def.emoji}
-                  </span>
-                  <span className="flex-1 leading-tight text-[11px] truncate">{def.label}</span>
-                  {st === "done" && <CheckCircle2 className="h-3 w-3 text-green-500 shrink-0" />}
-                  {st === "locked" && <Lock className="h-2.5 w-2.5 shrink-0" />}
-                  {st === "active" && isActive && <ChevronRight className="h-3 w-3 shrink-0" />}
-                </button>
+                </div>
               );
             })}
           </div>
@@ -334,9 +362,20 @@ export default function AgentesIA() {
               </Button>
             )}
             {currentState?.status === "done" && (
-              <Badge variant="outline" className="text-green-600 border-green-500/40 bg-green-500/5 gap-1 text-xs">
-                <CheckCircle2 className="h-3 w-3" /> Aprovado
-              </Badge>
+              <>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="gap-1 text-xs h-7 text-amber-600 hover:text-amber-700 hover:bg-amber-500/10"
+                  onClick={() => reopenAgent(activeAgent)}
+                  title="Reabrir para continuar (histórico preservado)"
+                >
+                  ↩ Reabrir
+                </Button>
+                <Badge variant="outline" className="text-green-600 border-green-500/40 bg-green-500/5 gap-1 text-xs">
+                  <CheckCircle2 className="h-3 w-3" /> Aprovado
+                </Badge>
+              </>
             )}
           </div>
         </div>
