@@ -14,7 +14,7 @@ export type AllAgentState = Record<number, AgentState>;
    PIPELINE DEFINITION
    Regular: 1-6   Senior: 101-106   Final: 7
 ═══════════════════════════════════════════════════ */
-export const PIPELINE = [1, 101, 2, 102, 3, 103, 4, 104, 5, 105, 6, 106, 7];
+export const PIPELINE = [1, 101, 2, 102, 3, 103, 4, 104, 5, 105, 6, 106, 8, 7];
 
 export const AGENTS: { id: number; emoji: string; label: string; isSenior: boolean }[] = [
   { id: 1,   emoji: "🧭", label: "Estrategista SEO Local",         isSenior: false },
@@ -29,6 +29,7 @@ export const AGENTS: { id: number; emoji: string; label: string; isSenior: boole
   { id: 105, emoji: "🎓", label: "Revisor Sênior — Copy",          isSenior: true  },
   { id: 6,   emoji: "📝", label: "Redator SEO Blog",               isSenior: false },
   { id: 106, emoji: "🎓", label: "Revisor Sênior — Blog",          isSenior: true  },
+  { id: 8,   emoji: "🎨", label: "UX/UI Designer",                 isSenior: false },
   { id: 7,   emoji: "🚀", label: "Gerador de Prompt Final",        isSenior: false },
 ];
 
@@ -134,6 +135,7 @@ export const AGENT_LABELS: Record<number, string> = {
   104: "Revisor Sênior — Estrutura",
   105: "Revisor Sênior — Copy",
   106: "Revisor Sênior — Blog",
+  8: "UX/UI Designer",
   7: "Gerador de Prompt Final",
 };
 
@@ -347,12 +349,79 @@ SUA ENTREGA — REVISÃO CRÍTICA DO MEGA-PROMPT E DA LISTA DE ARTIGOS:
 
 Seja implacável. Um prompt fraco gera artigo fraco, que não ranqueia e não converte.`,
 
+    8: `Você é o UX/UI Designer da agência PDL. ${ctx}
+
+Você recebe:
+1. O contexto completo do cliente (briefing + posicionamento aprovado + copy + arquitetura de site)
+2. Imagens de referência de sites enviadas pelo usuário (analise cada uma cuidadosamente)
+3. Instruções de customização específicas do usuário (nível de fidelidade à referência: idêntico, modelado, apenas inspiração, ou elementos específicos)
+
+SUA ENTREGA — DOCUMENTO DE DESIGN COMPLETO:
+
+== 1. ANÁLISE DAS REFERÊNCIAS ==
+Para cada imagem recebida:
+- O que funciona visualmente e por quê (em termos de UX e conversão)
+- Quais elementos são adequados para este cliente e seu posicionamento
+- Quais elementos contradizem a marca (evitar e por quê)
+- Nível de fidelidade recomendado para cada elemento (replicar / adaptar / inspirar)
+
+== 2. IDENTIDADE VISUAL DEFINIDA ==
+- Paleta de cores: primária (hex), secundária (hex), fundo (hex), texto principal (hex), texto secundário (hex), cor de ação/CTA (hex), cor de sucesso/alerta (hex)
+- Tipografia: fonte principal (Google Fonts) + pesos utilizados + font-size por hierarquia (H1, H2, H3, H4, body, caption, label)
+- Tipografia secundária (se houver): uso e contexto
+- Estilo visual geral: minimalista / bold / orgânico / premium / acolhedor / técnico / etc.
+- Tom visual: como o design comunica o posicionamento da marca visualmente
+
+== 3. LAYOUT POR SEÇÃO (página Home) ==
+Descreva cada seção visualmente:
+- Hero: tipo (imagem full / vídeo / gradiente / split), posicionamento dos elementos, proporções, espaçamentos
+- Seção de benefícios/diferenciais: grid (2col, 3col, cards, icons)
+- Seção de serviços: como apresentar (cards, lista, tabs, acordeão)
+- Seção Sobre: foto + texto / timeline / depoimento
+- Seção de prova social: depoimentos (layout), avaliações Google
+- FAQ: acordeão / grid / separado
+- Rodapé: colunas, elementos, newsletter se houver
+- CTAs flutuantes e fixos
+
+== 4. COMPONENTES E ELEMENTOS UI ==
+- Botões: shape (rounded / square / pill), tamanhos, estados (hover, active, disabled), sombra
+- Cards: sombra, border-radius, padding, hover effect
+- Inputs e formulários: estilo, border, focus state
+- Ícones: estilo (outline / filled / duo-tone / ilustrativo)
+- Separadores visuais: tipo (linha / espaço / forma orgânica / wave / diagonal)
+- Badge / tag / pill: uso e estilo
+
+== 5. MICROANIMAÇÕES E INTERAÇÕES ==
+- Scroll animations: fade-in / slide-up / scale (descrever por seção)
+- Hover effects em cards, botões, imagens
+- Transições de página (se SPA)
+- Loading states
+- Cursor customizado (se relevante para o nicho)
+
+== 6. ADAPTAÇÃO MOBILE-FIRST ==
+- Como cada seção principal adapta em mobile (320px, 375px, 768px)
+- Breakpoints de grid (ex: hero de split vira stack)
+- Comportamento do menu de navegação em mobile
+- Tamanho de fonte ajustado por breakpoint
+
+== 7. INSTRUÇÕES ESPECÍFICAS DE FIDELIDADE ÀS REFERÊNCIAS ==
+Baseado nas instruções de customização do usuário:
+- Lista do que deve ser replicado exatamente (elemento por elemento)
+- Lista do que deve ser adaptado à identidade da marca
+- Lista do que é apenas inspiração conceitual
+- Avisos sobre elementos que podem prejudicar SEO ou conversão se copiados literalmente
+
+== 8. NOTAS PARA O ENGENHEIRO DE PROMPTS ==
+Instruções diretas para a fase seguinte (Agente 7), incluindo qualquer decisão de design que precisa ser comunicada de forma específica no prompt de produção do site.
+
+Este documento é o insumo direto para o Prompt 1 do Engenheiro de Prompts. Seja extremamente específico. Zero ambiguidade.`,
+
     7: `Você é o Engenheiro de Prompts Final da agência PDL. ${ctx}
 
 Gere 2 prompts ultra detalhados e auto-suficientes para produção do site:
 
 PROMPT 1 — ESTRUTURA E LAYOUT:
-Design completo: paleta de cores (hex exatos), tipografia (fontes Google com pesos), grid e layout por seção, responsividade mobile-first, componentes UI necessários, microanimações sugeridas, schema markup por tipo de página, sugestão de imagens (tipo + proporção + descrição do conteúdo visual).
+Use INTEGRALMENTE o Documento de Design gerado pelo UX/UI Designer (fase 8, disponível nos outputs aprovados). Transforme cada decisão de design em instrução técnica precisa: cores hex, fontes com pesos e tamanhos, layout por seção, componentes, animações, responsividade, schema markup. Zero interpretação — tudo já está decidido pelo designer.
 
 PROMPT 2 — COPY E CONTEÚDO:
 Todos os textos do site organizados por página e por seção (H1, H2, H3, parágrafos, benefícios, CTAs, hero, sobre, serviços, FAQ, rodapé). Usar exatamente o copy aprovado pelo Copywriter (fase 5) e validado pelo Revisor Sênior (fase 105). Zero texto genérico. Tudo específico e finalizado para este cliente.
@@ -393,6 +462,45 @@ export async function callRegularAgent(
   if (!res.ok) {
     const e = await res.json();
     throw new Error(e.error?.message ?? "Erro na API OpenAI");
+  }
+  const data = await res.json();
+  return data.choices[0].message.content as string;
+}
+
+/** Vision agent — UX Designer with image support (GPT-4o Vision) */
+export async function callVisionAgent(
+  messages: Message[],
+  images: Array<{ name: string; base64: string }>,
+  contextMessages: Message[],
+  systemPrompt: string,
+  apiKey: string
+): Promise<string> {
+  // Build the first user message with images embedded
+  const firstUserText = messages[0]?.content ?? "Analise as referências e gere o documento de design.";
+  const firstMsgContent: unknown[] = [
+    { type: "text", text: firstUserText },
+    ...images.map((img) => ({
+      type: "image_url",
+      image_url: { url: img.base64, detail: "high" },
+    })),
+  ];
+
+  const apiMessages = [
+    { role: "system", content: systemPrompt },
+    ...contextMessages,
+    { role: "user", content: firstMsgContent },
+    // remaining messages are text-only
+    ...messages.slice(1).map((m) => ({ role: m.role, content: m.content })),
+  ];
+
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({ model: "gpt-4o", messages: apiMessages, temperature: 0.7, max_tokens: 4096 }),
+  });
+  if (!res.ok) {
+    const e = await res.json();
+    throw new Error(e.error?.message ?? "Erro na Vision API");
   }
   const data = await res.json();
   return data.choices[0].message.content as string;

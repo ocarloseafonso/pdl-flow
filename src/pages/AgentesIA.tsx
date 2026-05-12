@@ -5,7 +5,7 @@ import {
   AGENTS, PIPELINE, AllAgentState, Message,
   makeInitialState, loadSession, saveSession, clearSession,
   buildClientContext, getSystemPrompt, buildContextMessages,
-  callRegularAgent, callSeniorAgent,
+  callRegularAgent, callSeniorAgent, callVisionAgent,
 } from "@/lib/agentConfig";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -13,9 +13,11 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import {
   BrainCircuit, Send, CheckCircle2, Lock, Loader2,
   ChevronRight, RotateCcw, Copy, CheckCheck, User, Trash2, GraduationCap,
+  Palette, ImagePlus, X, Info,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -29,6 +31,11 @@ export default function AgentesIA() {
   const [loading, setLoading] = useState(false);
   const [copiedOutput, setCopiedOutput] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  // UX Designer agent (id=8) state
+  const [refImages, setRefImages] = useState<Array<{ name: string; base64: string }>>([]);
+  const [designMode, setDesignMode] = useState<"identical" | "modeled" | "elements" | "inspiration">("modeled");
+  const [designNotes, setDesignNotes] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   /* ── fetch clients once ── */
   useEffect(() => {
@@ -68,6 +75,23 @@ export default function AgentesIA() {
     if (selectedClientId) saveSession(selectedClientId, newState);
   }, [selectedClientId]);
 
+  /* ── Image upload for UX Designer ── */
+  function handleImageFiles(files: FileList | null) {
+    if (!files) return;
+    const allowed = Array.from(files).filter(f => f.type.startsWith("image/")).slice(0, 5);
+    allowed.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const base64 = e.target?.result as string;
+        setRefImages(prev => {
+          if (prev.length >= 5) { toast.warning("Máximo 5 imagens de referência."); return prev; }
+          return [...prev, { name: file.name, base64 }];
+        });
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
   /* ── Send message ── */
   async function sendMessage() {
     if (!input.trim() || loading) return;
@@ -75,7 +99,14 @@ export default function AgentesIA() {
     const key = localStorage.getItem("OPENAI_API_KEY");
     if (!key) { toast.error("Configure sua chave OpenAI em Configurações."); return; }
 
-    const userMsg: Message = { role: "user", content: input.trim() };
+    // For agent 8, build message with design mode + notes
+    let userContent = input.trim();
+    if (activeAgent === 8 && currentState.messages.length === 0) {
+      const modeLabel = { identical: "IDÊNTICO", modeled: "MODELADO", elements: "ELEMENTOS ESPECÍFICOS", inspiration: "APENAS INSPIRAÇÃO" }[designMode];
+      userContent = `NÍVEL DE FIDELIDADE ÀS REFERÊNCIAS: ${modeLabel}\n\n${designNotes ? `INSTRUÇÕES ESPECÍFICAS DO USUÁRIO:\n${designNotes}\n\n` : ""}SOLICITAÇÃO: ${input.trim()}`;
+    }
+
+    const userMsg: Message = { role: "user", content: userContent };
     setInput("");
     const updatedMsgs = [...currentState.messages, userMsg];
 
@@ -85,12 +116,16 @@ export default function AgentesIA() {
 
     try {
       const systemPrompt = getSystemPrompt(activeAgent, buildClientContext(selectedClient), agentState);
-      // Build context messages from ALL previously approved agents (injected at call time, not stored)
       const contextMessages = buildContextMessages(agentState, activeAgent);
 
-      const reply = agentDef.isSenior
-        ? await callSeniorAgent(updatedMsgs, contextMessages, systemPrompt, key)
-        : await callRegularAgent(updatedMsgs, contextMessages, systemPrompt, key);
+      let reply: string;
+      if (activeAgent === 8) {
+        reply = await callVisionAgent(updatedMsgs, refImages, contextMessages, systemPrompt, key);
+      } else if (agentDef.isSenior) {
+        reply = await callSeniorAgent(updatedMsgs, contextMessages, systemPrompt, key);
+      } else {
+        reply = await callRegularAgent(updatedMsgs, contextMessages, systemPrompt, key);
+      }
 
       const s2: AllAgentState = {
         ...s1,
@@ -323,22 +358,114 @@ export default function AgentesIA() {
             </div>
           ) : !currentState?.messages.length ? (
             <div className="flex flex-col items-center justify-center h-full min-h-[300px] text-center gap-3">
-              <div className="text-4xl">{agentDef.emoji}</div>
-              <p className="font-semibold text-sm">{agentDef.label}</p>
-              <p className="text-xs text-muted-foreground max-w-sm">
-                {agentDef.isSenior
-                  ? `Diga "Revisar agora" para o Revisor Sênior analisar o output do agente anterior com pesquisa na web.`
-                  : `Diga "Pode começar" para iniciar com base nos dados de ${selectedClient.name}.`}
-              </p>
-              <Button
-                variant="outline"
-                size="sm"
-                className="mt-1 text-xs"
-                onClick={() => setInput(agentDef.isSenior ? "Revisar agora." : "Pode começar.")}
-              >
-                Usar sugestão
-              </Button>
+
+              {/* ── UX Designer special panel ── */}
+              {activeAgent === 8 ? (
+                <div className="w-full max-w-2xl space-y-4 text-left">
+                  <div className="flex items-center gap-2 justify-center">
+                    <Palette className="h-6 w-6 text-purple-500" />
+                    <p className="font-semibold text-base">UX/UI Designer</p>
+                  </div>
+                  <p className="text-xs text-muted-foreground text-center">
+                    Envie até 5 prints de sites de referência e defina como quer usar cada um.
+                  </p>
+
+                  {/* Image drop zone */}
+                  <div
+                    className="border-2 border-dashed border-purple-500/30 rounded-xl p-5 text-center cursor-pointer hover:bg-purple-500/5 transition-colors"
+                    onClick={() => fileInputRef.current?.click()}
+                    onDragOver={e => e.preventDefault()}
+                    onDrop={e => { e.preventDefault(); handleImageFiles(e.dataTransfer.files); }}
+                  >
+                    <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden"
+                      onChange={e => handleImageFiles(e.target.files)} />
+                    <ImagePlus className="h-8 w-8 text-purple-400 mx-auto mb-2" />
+                    <p className="text-xs text-muted-foreground">Arraste imagens aqui ou clique para selecionar</p>
+                    <p className="text-[10px] text-muted-foreground/60 mt-1">PNG, JPG, WebP • máx. 5 imagens</p>
+                  </div>
+
+                  {/* Image previews */}
+                  {refImages.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {refImages.map((img, i) => (
+                        <div key={i} className="relative group">
+                          <img src={img.base64} alt={img.name} className="h-20 w-28 object-cover rounded-lg border" />
+                          <button
+                            onClick={() => setRefImages(prev => prev.filter((_, idx) => idx !== i))}
+                            className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-destructive text-white hidden group-hover:flex items-center justify-center"
+                          ><X className="h-3 w-3" /></button>
+                          <p className="text-[9px] text-muted-foreground truncate max-w-[112px] mt-0.5">{img.name}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Design mode */}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold">Nível de fidelidade às referências</Label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {([
+                        { id: "identical", label: "🔁 Idêntico", desc: "Replicar exatamente" },
+                        { id: "modeled", label: "🧩 Modelado", desc: "Mesma estrutura, adaptado à marca" },
+                        { id: "elements", label: "🎯 Elementos específicos", desc: "Definir o que copiar" },
+                        { id: "inspiration", label: "💡 Apenas inspiração", desc: "Conceito geral, livre criação" },
+                      ] as const).map(opt => (
+                        <button
+                          key={opt.id}
+                          onClick={() => setDesignMode(opt.id)}
+                          className={cn(
+                            "p-2.5 rounded-lg border text-left text-xs transition-all",
+                            designMode === opt.id
+                              ? "border-purple-500 bg-purple-500/10 text-purple-700 dark:text-purple-300"
+                              : "border-border hover:bg-accent/50"
+                          )}
+                        >
+                          <div className="font-medium">{opt.label}</div>
+                          <div className="text-muted-foreground text-[10px]">{opt.desc}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Design notes */}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold">Instruções específicas (opcional)</Label>
+                    <Textarea
+                      className="text-xs min-h-[70px] resize-none"
+                      placeholder="Ex: Quero o hero igual ao da referência 1, mas com as cores da marca. O menu deve ser igual ao da referência 2. Cards de serviços devem ser completamente diferentes — mais modernos..."
+                      value={designNotes}
+                      onChange={e => setDesignNotes(e.target.value)}
+                    />
+                  </div>
+
+                  {refImages.length === 0 && (
+                    <div className="flex items-start gap-2 text-[11px] text-amber-700 dark:text-amber-400 bg-amber-500/10 rounded-lg p-2.5">
+                      <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                      Você pode continuar sem imagens — o agente criará o design baseado no posicionamento e copy aprovados.
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <div className="text-4xl">{agentDef.emoji}</div>
+                  <p className="font-semibold text-sm">{agentDef.label}</p>
+                  <p className="text-xs text-muted-foreground max-w-sm">
+                    {agentDef.isSenior
+                      ? `Diga "Revisar agora" para o Revisor Sênior analisar o output do agente anterior com pesquisa na web.`
+                      : `Diga "Pode começar" para iniciar com base nos dados de ${selectedClient.name}.`}
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-1 text-xs"
+                    onClick={() => setInput(agentDef.isSenior ? "Revisar agora." : "Pode começar.")}
+                  >
+                    Usar sugestão
+                  </Button>
+                </>
+              )}
             </div>
+
           ) : (
             <div className="space-y-4 pb-4">
               {currentState.messages.map((msg, i) => (
