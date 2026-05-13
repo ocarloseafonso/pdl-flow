@@ -4,7 +4,7 @@ import { Client } from "@/lib/types";
 import {
   AGENTS, PIPELINE, AllAgentState, AgentState, Message,
   makeInitialState, loadSession, saveSession, clearSession,
-  buildClientContext, getSystemPrompt, buildContextMessages,
+  buildClientContext, getSystemPrompt, getVisionSystemPrompt, buildContextMessages,
   callRegularAgent, callSeniorAgent, callVisionAgent,
 } from "@/lib/agentConfig";
 import { Button } from "@/components/ui/button";
@@ -125,8 +125,17 @@ export default function AgentesIA() {
     setLoading(true);
 
     try {
-      const systemPrompt = getSystemPrompt(activeAgent, buildClientContext(selectedClient), agentState);
-      const contextMessages = buildContextMessages(agentState, activeAgent);
+      let systemPrompt: string;
+      let contextMessages: Message[];
+      if (activeAgent === 8) {
+        // Vision agent: use lean prompt (no GMN_KNOWLEDGE, truncated history)
+        // and NO extra context messages — keep tokens minimal for image processing
+        systemPrompt = getVisionSystemPrompt(buildClientContext(selectedClient), agentState);
+        contextMessages = [];
+      } else {
+        systemPrompt = getSystemPrompt(activeAgent, buildClientContext(selectedClient), agentState);
+        contextMessages = buildContextMessages(agentState, activeAgent);
+      }
 
       let reply: string;
       if (activeAgent === 8) {

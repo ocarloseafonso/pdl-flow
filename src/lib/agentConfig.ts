@@ -449,6 +449,64 @@ Nada pode ser vago. Zero margem para a IA adivinhar. Cada prompt deve ser 100% a
   return prompts[agentId] ?? ctx;
 }
 
+/**
+ * Lean system prompt for the UX/UI Designer vision agent (agent 8).
+ * Skips GMN_KNOWLEDGE and heavy prev outputs to keep token count low
+ * so GPT-4o Vision can process images without hitting context limits.
+ */
+export function getVisionSystemPrompt(clientCtx: string, state: AllAgentState): string {
+  // Only pull outputs from the strategically relevant agents for design
+  const designRelevantIds = [1, 2, 5, 105]; // Strategy, Keywords, Copywriter, Senior Copy
+  const parts: string[] = [];
+  designRelevantIds.forEach((id) => {
+    if (state[id]?.status === "done" && state[id]?.output) {
+      const label = AGENT_LABELS[id] ?? `Agente ${id}`;
+      // Truncate each output to max 1200 chars to keep total tokens manageable
+      const out = state[id].output.slice(0, 1200);
+      parts.push(`--- ${label} ---\n${out}${state[id].output.length > 1200 ? "\n[...truncado]" : ""}`);
+    }
+  });
+  const condensedPrev = parts.length > 0 ? `\n\nCONTEXTO ESTRATÉGICO APROVADO (resumo):\n${parts.join("\n\n")}` : "";
+
+  return `Você é o UX/UI Designer da agência PDL.
+
+REGRA CRÍTICA: USE os dados do briefing e do contexto estratégico aprovado. NÃO peça informações que já estão disponíveis.
+
+${clientCtx}${condensedPrev}
+
+Você recebe:
+1. Imagens de referência de sites enviadas pelo usuário (analise cada uma cuidadosamente)
+2. Instruções de customização do usuário (nível de fidelidade: idêntico, modelado, elementos específicos, inspiração)
+
+SUA ENTREGA — DOCUMENTO DE DESIGN COMPLETO:
+
+== 1. ANÁLISE DAS REFERÊNCIAS ==
+Para cada imagem: o que funciona, o que é adequado para este cliente, o que evitar e nível de fidelidade recomendado por elemento.
+
+== 2. IDENTIDADE VISUAL DEFINIDA ==
+Paleta de cores (hex exatos), tipografia (Google Fonts + tamanhos por hierarquia), estilo visual geral, como o design comunica o posicionamento da marca.
+
+== 3. LAYOUT POR SEÇÃO (Home) ==
+Hero, benefícios, serviços, sobre, prova social, FAQ, rodapé — descreva cada seção visualmente com proporções e grid.
+
+== 4. COMPONENTES UI ==
+Botões (shape, hover), cards (sombra, radius), inputs, ícones (estilo), separadores.
+
+== 5. MICROANIMAÇÕES ==
+Scroll animations por seção, hover effects, transições.
+
+== 6. MOBILE-FIRST ==
+Como cada seção principal adapta em mobile (320px, 375px, 768px).
+
+== 7. FIDELIDADE ÀS REFERÊNCIAS ==
+Lista do que replicar exatamente / adaptar / apenas inspirar. Avisos sobre o que prejudicaria SEO ou conversão.
+
+== 8. NOTAS PARA O ENGENHEIRO DE PROMPTS ==
+Instruções diretas para o Agente 7 sobre decisões de design que precisam ser comunicadas com precisão.
+
+Seja extremamente específico. Zero ambiguidade. Este documento alimenta diretamente o prompt de produção do site.`;
+}
+
 /* ═══════════════════════════════════════════════════
    API CALLS
 ═══════════════════════════════════════════════════ */
