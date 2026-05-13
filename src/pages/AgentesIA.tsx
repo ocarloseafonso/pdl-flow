@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Client } from "@/lib/types";
 import {
-  AGENTS, PIPELINE, AllAgentState, Message,
+  AGENTS, PIPELINE, AllAgentState, AgentState, Message,
   makeInitialState, loadSession, saveSession, clearSession,
   buildClientContext, getSystemPrompt, buildContextMessages,
   callRegularAgent, callSeniorAgent, callVisionAgent,
@@ -99,18 +99,28 @@ export default function AgentesIA() {
     const key = localStorage.getItem("OPENAI_API_KEY");
     if (!key) { toast.error("Configure sua chave OpenAI em Configurações."); return; }
 
-    // For agent 8, build message with design mode + notes
+    // Defensive: if currentState is undefined (agent added after session was saved),
+    // initialize it on the fly and unlock it so the user can proceed.
+    const safeState: AgentState = currentState ?? { status: "active", output: "", messages: [] };
+    if (safeState.status === "locked") {
+      // Auto-unlock — this agent was locked because the session predates it
+      const unlocked = { ...agentState, [activeAgent]: { ...safeState, status: "active" as const } };
+      setAgentState(unlocked);
+      persist(unlocked);
+    }
+
+    // For agent 8, build message with design mode + notes on the FIRST message
     let userContent = input.trim();
-    if (activeAgent === 8 && currentState.messages.length === 0) {
+    if (activeAgent === 8 && safeState.messages.length === 0) {
       const modeLabel = { identical: "IDÊNTICO", modeled: "MODELADO", elements: "ELEMENTOS ESPECÍFICOS", inspiration: "APENAS INSPIRAÇÃO" }[designMode];
       userContent = `NÍVEL DE FIDELIDADE ÀS REFERÊNCIAS: ${modeLabel}\n\n${designNotes ? `INSTRUÇÕES ESPECÍFICAS DO USUÁRIO:\n${designNotes}\n\n` : ""}SOLICITAÇÃO: ${input.trim()}`;
     }
 
     const userMsg: Message = { role: "user", content: userContent };
     setInput("");
-    const updatedMsgs = [...currentState.messages, userMsg];
+    const updatedMsgs = [...safeState.messages, userMsg];
 
-    const s1 = { ...agentState, [activeAgent]: { ...currentState, messages: updatedMsgs } };
+    const s1 = { ...agentState, [activeAgent]: { ...safeState, status: "active" as const, messages: updatedMsgs } };
     setAgentState(s1);
     setLoading(true);
 
@@ -139,6 +149,7 @@ export default function AgentesIA() {
       setLoading(false);
     }
   }
+
 
   /* ── Approve and advance ── */
   function approveAndAdvance() {

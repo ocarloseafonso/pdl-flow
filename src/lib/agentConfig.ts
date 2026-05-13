@@ -41,7 +41,21 @@ const storageKey = (clientId: string) => `pdl_agents_v2_${clientId}`;
 export function loadSession(clientId: string): AllAgentState | null {
   try {
     const raw = localStorage.getItem(storageKey(clientId));
-    if (raw) return JSON.parse(raw) as AllAgentState;
+    if (raw) {
+      const saved = JSON.parse(raw) as AllAgentState;
+      // Merge saved state with fresh initial state so any new agents
+      // added to the PIPELINE after the session was created are initialized.
+      const fresh = makeInitialState();
+      const merged: AllAgentState = { ...fresh };
+      PIPELINE.forEach((id) => {
+        if (saved[id] !== undefined) {
+          merged[id] = saved[id];
+        }
+        // If an agent exists in saved but was locked, keep it locked.
+        // If it doesn't exist in saved at all, fresh init (locked) stands.
+      });
+      return merged;
+    }
   } catch { /* ignore */ }
   return null;
 }
