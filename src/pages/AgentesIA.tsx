@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+﻿import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Client } from "@/lib/types";
 import {
@@ -30,6 +30,9 @@ export default function AgentesIA() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [copiedOutput, setCopiedOutput] = useState(false);
+  // Engineer of Prompt agent (id=7) — segmented copy states
+  const [copiedPrompt, setCopiedPrompt] = useState<Record<string, boolean>>({});
+  const [copiedAll, setCopiedAll] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   // UX Designer agent (id=8) state
   const [refImages, setRefImages] = useState<Array<{ name: string; base64: string }>>([]);
@@ -278,6 +281,44 @@ export default function AgentesIA() {
     await navigator.clipboard.writeText(currentState.output);
     setCopiedOutput(true);
     setTimeout(() => setCopiedOutput(false), 2000);
+  }
+
+  /** Splits Engenheiro de Prompt output into labelled sections */
+  function parseEngPrompts(output: string): Array<{ label: string; content: string }> {
+    const regex = /===(.*?)===([\s\S]*?)(?=(?:===|--- FIM DO PROMPT))/g;
+    const sections: Array<{ label: string; content: string }> = [];
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(output)) !== null) {
+      const label = match[1].trim();
+      const body = match[2].trim();
+      if (label && body) sections.push({ label, content: body });
+    }
+    // fallback: split by --- FIM DO PROMPT [X] ---
+    if (sections.length === 0) {
+      const parts = output.split(/---\s*FIM DO PROMPT\s*[A-E]\s*---/i);
+      const headers = [...output.matchAll(/===\s*PROMPT\s+([A-E][^\n=]*)===/gi)];
+      parts.forEach((part, i) => {
+        const trimmed = part.trim();
+        if (!trimmed) return;
+        const label = headers[i]
+          ? headers[i][0].replace(/===/g, '').trim()
+          : `Bloco ${i + 1}`;
+        sections.push({ label, content: trimmed });
+      });
+    }
+    return sections.length > 1 ? sections : [];
+  }
+
+  async function copyPromptSection(key: string, text: string) {
+    await navigator.clipboard.writeText(text);
+    setCopiedPrompt(p => ({ ...p, [key]: true }));
+    setTimeout(() => setCopiedPrompt(p => ({ ...p, [key]: false })), 2000);
+  }
+
+  async function copyAllPrompts(text: string) {
+    await navigator.clipboard.writeText(text);
+    setCopiedAll(true);
+    setTimeout(() => setCopiedAll(false), 2000);
   }
 
   function handleKey(e: React.KeyboardEvent) {
@@ -632,25 +673,74 @@ export default function AgentesIA() {
 
           ) : (
             <div className="space-y-4 pb-4">
-              {currentState.messages.map((msg, i) => (
-                <div key={i} className={cn("flex gap-2.5", msg.role === "user" && "flex-row-reverse")}>
-                  <div className={cn(
-                    "h-6 w-6 rounded-full shrink-0 grid place-items-center text-xs",
-                    msg.role === "assistant"
-                      ? (agentDef.isSenior ? "bg-amber-500/15" : "bg-primary/10")
-                      : "bg-muted"
-                  )}>
-                    {msg.role === "assistant" ? agentDef.emoji : <User className="h-3 w-3" />}
+              {currentState.messages.map((msg, i) => {
+                // ── Special rendering for Engenheiro de Prompt (agent 7) assistant messages ──
+                if (activeAgent === 7 && msg.role === "assistant") {
+                  const sections = parseEngPrompts(msg.content);
+                  if (sections.length > 1) {
+                    return (
+                      <div key={i} className="space-y-3 w-full">
+                        {/* Header bar */}
+                        <div className="flex items-center justify-between px-1">
+                          <div className="flex items-center gap-2 text-xs font-semibold text-violet-700 dark:text-violet-400">
+                            <span className="text-base">{agentDef.emoji}</span>
+                            Prompts gerados — copie individualmente ou todos juntos
+                          </div>
+                          <button
+                            onClick={() => copyAllPrompts(msg.content)}
+                            className="flex items-center gap-1.5 text-[11px] font-medium px-3 py-1.5 rounded-md border border-violet-500/40 bg-violet-500/10 text-violet-700 dark:text-violet-300 hover:bg-violet-500/20 transition-colors"
+                          >
+                            {copiedAll ? <><CheckCheck className="h-3 w-3 text-green-500" /> Copiado!</> : <><Copy className="h-3 w-3" /> Copiar tudo</>}
+                          </button>
+                        </div>
+
+                        {/* Individual prompt cards */}
+                        {sections.map((sec, si) => (
+                          <Card key={si} className="border-violet-500/20 bg-violet-500/5 overflow-hidden">
+                            <div className="flex items-center justify-between px-4 py-2 border-b border-violet-500/15 bg-violet-500/10">
+                              <span className="text-xs font-bold text-violet-700 dark:text-violet-300 uppercase tracking-wide">
+                                {sec.label}
+                              </span>
+                              <button
+                                onClick={() => copyPromptSection(`${i}-${si}`, sec.content)}
+                                className="flex items-center gap-1 text-[11px] font-medium px-2.5 py-1 rounded border border-violet-500/30 bg-white/50 dark:bg-white/5 text-violet-700 dark:text-violet-300 hover:bg-violet-500/20 transition-colors"
+                              >
+                                {copiedPrompt[`${i}-${si}`]
+                                  ? <><CheckCheck className="h-3 w-3 text-green-500" /> Copiado</>
+                                  : <><Copy className="h-3 w-3" /> Copiar</>}
+                              </button>
+                            </div>
+                            <div className="px-4 py-3 text-sm whitespace-pre-wrap leading-relaxed text-foreground/90 max-h-[340px] overflow-y-auto">
+                              {sec.content}
+                            </div>
+                          </Card>
+                        ))}
+                      </div>
+                    );
+                  }
+                }
+
+                // ── Default message rendering ──
+                return (
+                  <div key={i} className={cn("flex gap-2.5", msg.role === "user" && "flex-row-reverse")}>
+                    <div className={cn(
+                      "h-6 w-6 rounded-full shrink-0 grid place-items-center text-xs",
+                      msg.role === "assistant"
+                        ? (agentDef.isSenior ? "bg-amber-500/15" : "bg-primary/10")
+                        : "bg-muted"
+                    )}>
+                      {msg.role === "assistant" ? agentDef.emoji : <User className="h-3 w-3" />}
+                    </div>
+                    <Card className={cn(
+                      "max-w-[82%] px-4 py-3 text-sm whitespace-pre-wrap leading-relaxed",
+                      msg.role === "user" && "bg-primary/5 border-primary/20",
+                      msg.role === "assistant" && agentDef.isSenior && "border-amber-500/20 bg-amber-500/5"
+                    )}>
+                      {msg.content}
+                    </Card>
                   </div>
-                  <Card className={cn(
-                    "max-w-[82%] px-4 py-3 text-sm whitespace-pre-wrap leading-relaxed",
-                    msg.role === "user" && "bg-primary/5 border-primary/20",
-                    msg.role === "assistant" && agentDef.isSenior && "border-amber-500/20 bg-amber-500/5"
-                  )}>
-                    {msg.content}
-                  </Card>
-                </div>
-              ))}
+                );
+              })}
               {loading && (
                 <div className="flex gap-2.5">
                   <div className={cn(
