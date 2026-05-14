@@ -34,10 +34,16 @@ export default function Config() {
 
   // OpenAI Settings
   const [openAiKey, setOpenAiKey] = useState(() => localStorage.getItem("OPENAI_API_KEY") || "");
+  const [firecrawlKey, setFirecrawlKey] = useState(() => localStorage.getItem("FIRECRAWL_API_KEY") || "");
 
   function saveOpenAiKey() {
     localStorage.setItem("OPENAI_API_KEY", openAiKey);
     toast.success("Chave da OpenAI salva com sucesso no navegador!");
+  }
+
+  function saveFirecrawlKey() {
+    localStorage.setItem("FIRECRAWL_API_KEY", firecrawlKey);
+    toast.success("Chave do Firecrawl salva!");
   }
 
   async function syncFromSheets() {
@@ -138,6 +144,36 @@ export default function Config() {
           </div>
           {openAiKey && (
             <p className="text-xs text-green-600 dark:text-green-400">✅ Chave configurada. Os Agentes IA estão prontos para uso.</p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Firecrawl Settings — necessária para scraping do UX Designer */}
+      <Card className="border-purple-500/30 bg-purple-500/5">
+        <CardHeader><CardTitle className="text-base flex items-center gap-2">
+          <KeyRound className="h-4 w-4 text-purple-500" />
+          Chave Firecrawl — necessária para o Agente UX/UI Designer (scraping)
+        </CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Usada pelo Agente 🎨 UX/UI Designer para raspar sites de referência via URL. Obtenha em{" "}
+            <a href="https://firecrawl.dev" target="_blank" rel="noreferrer" className="text-purple-600 underline">firecrawl.dev</a>.
+          </p>
+          <div className="flex gap-2">
+            <Input
+              id="firecrawl-key-input"
+              type="password"
+              placeholder="fc-..."
+              value={firecrawlKey}
+              onChange={(e) => setFirecrawlKey(e.target.value)}
+              className="max-w-md"
+            />
+            <Button onClick={saveFirecrawlKey} variant="default" className="gap-2 bg-purple-600 hover:bg-purple-700">
+              <KeyRound className="h-4 w-4" /> Salvar Chave
+            </Button>
+          </div>
+          {firecrawlKey && (
+            <p className="text-xs text-green-600 dark:text-green-400">✅ Chave Firecrawl configurada. O scraping de sites está ativo.</p>
           )}
         </CardContent>
       </Card>

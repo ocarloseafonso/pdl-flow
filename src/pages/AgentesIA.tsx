@@ -17,7 +17,7 @@ import { Label } from "@/components/ui/label";
 import {
   BrainCircuit, Send, CheckCircle2, Lock, Loader2,
   ChevronRight, RotateCcw, Copy, CheckCheck, User, Trash2, GraduationCap,
-  Palette, ImagePlus, X, Info,
+  Palette, ImagePlus, X, Info, Link, ScanSearch,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -36,6 +36,13 @@ export default function AgentesIA() {
   const [designMode, setDesignMode] = useState<"identical" | "modeled" | "elements" | "inspiration">("modeled");
   const [designNotes, setDesignNotes] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Scraper mode state
+  const [scraperMode, setScraperMode] = useState<"images" | "url">("url");
+  const [scraperUrl, setScraperUrl] = useState("");
+  const [scraping, setScraping] = useState(false);
+  const [scrapedData, setScrapedData] = useState<{
+    url: string; title?: string; markdown: string; screenshot?: string;
+  } | null>(null);
 
   /* ── fetch clients once ── */
   useEffect(() => {
@@ -75,6 +82,40 @@ export default function AgentesIA() {
     if (selectedClientId) saveSession(selectedClientId, newState);
   }, [selectedClientId]);
 
+  /* ── Firecrawl scraping ── */
+  async function scrapeUrl() {
+    if (!scraperUrl.trim()) { toast.error("Digite uma URL válida."); return; }
+    if (!/^https?:\/\//.test(scraperUrl)) { toast.error("URL deve começar com https://"); return; }
+    const fcKey = localStorage.getItem("FIRECRAWL_API_KEY");
+    if (!fcKey) { toast.error("Configure sua chave Firecrawl em Configurações."); return; }
+    setScraping(true);
+    setScrapedData(null);
+    try {
+      const res = await fetch("https://api.firecrawl.dev/v1/scrape", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${fcKey}` },
+        body: JSON.stringify({ url: scraperUrl.trim(), formats: ["markdown", "screenshot"] }),
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Firecrawl [${res.status}]: ${errText.slice(0, 200)}`);
+      }
+      const json = await res.json();
+      const data = json?.data ?? json;
+      setScrapedData({
+        url: scraperUrl.trim(),
+        title: data?.metadata?.title ?? data?.metadata?.ogTitle,
+        markdown: data?.markdown ?? "",
+        screenshot: data?.screenshot,
+      });
+      toast.success("✅ Site analisado! Escolha o nível de fidelidade e envie.");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Erro no scraping");
+    } finally {
+      setScraping(false);
+    }
+  }
+
   /* ── Image upload for UX Designer ── */
   function handleImageFiles(files: FileList | null) {
     if (!files) return;
@@ -109,11 +150,21 @@ export default function AgentesIA() {
       persist(unlocked);
     }
 
-    // For agent 8, build message with design mode + notes on the FIRST message
+    // Build user content depending on mode
     let userContent = input.trim();
     if (activeAgent === 8 && safeState.messages.length === 0) {
       const modeLabel = { identical: "IDÊNTICO", modeled: "MODELADO", elements: "ELEMENTOS ESPECÍFICOS", inspiration: "APENAS INSPIRAÇÃO" }[designMode];
-      userContent = `NÍVEL DE FIDELIDADE ÀS REFERÊNCIAS: ${modeLabel}\n\n${designNotes ? `INSTRUÇÕES ESPECÍFICAS DO USUÁRIO:\n${designNotes}\n\n` : ""}SOLICITAÇÃO: ${input.trim()}`;
+      if (scraperMode === "url" && scrapedData) {
+        // URL mode: inject scraped content as text
+        const mdTrunc = scrapedData.markdown.slice(0, 6000);
+        userContent = `NÍVEL DE FIDELIDADE ÀS REFERÊNCIAS: ${modeLabel}\n\nSITE RASPADO: ${scrapedData.url}\nTÍTULO: ${scrapedData.title ?? "(sem título)"}\n\n${designNotes ? `INSTRUÇÕES DO USUÁRIO:\n${designNotes}\n\n` : ""}CONTEÚDO DO SITE (markdown, truncado em 6000 chars):\n${mdTrunc}\n\nSOLICITAÇÃO: ${input.trim() || "Analise este site e gere o documento de design completo conforme as instruções."}` ;
+        // Add screenshot as vision image if available
+        if (scrapedData.screenshot) {
+          setRefImages([{ name: "screenshot.png", base64: scrapedData.screenshot }]);
+        }
+      } else {
+        userContent = `NÍVEL DE FIDELIDADE ÀS REFERÊNCIAS: ${modeLabel}\n\n${designNotes ? `INSTRUÇÕES ESPECÍFICAS DO USUÁRIO:\n${designNotes}\n\n` : ""}SOLICITAÇÃO: ${input.trim()}`;
+      }
     }
 
     const userMsg: Message = { role: "user", content: userContent };
@@ -425,43 +476,106 @@ export default function AgentesIA() {
                     <Palette className="h-6 w-6 text-purple-500" />
                     <p className="font-semibold text-base">UX/UI Designer</p>
                   </div>
-                  <p className="text-xs text-muted-foreground text-center">
-                    Envie até 5 prints de sites de referência e defina como quer usar cada um.
-                  </p>
 
-                  {/* Image drop zone */}
-                  <div
-                    className="border-2 border-dashed border-purple-500/30 rounded-xl p-5 text-center cursor-pointer hover:bg-purple-500/5 transition-colors"
-                    onClick={() => fileInputRef.current?.click()}
-                    onDragOver={e => e.preventDefault()}
-                    onDrop={e => { e.preventDefault(); handleImageFiles(e.dataTransfer.files); }}
-                  >
-                    <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden"
-                      onChange={e => handleImageFiles(e.target.files)} />
-                    <ImagePlus className="h-8 w-8 text-purple-400 mx-auto mb-2" />
-                    <p className="text-xs text-muted-foreground">Arraste imagens aqui ou clique para selecionar</p>
-                    <p className="text-[10px] text-muted-foreground/60 mt-1">PNG, JPG, WebP • máx. 5 imagens</p>
+                  {/* Mode toggle */}
+                  <div className="flex rounded-lg border overflow-hidden text-xs font-medium">
+                    <button
+                      onClick={() => { setScraperMode("url"); setScrapedData(null); }}
+                      className={cn("flex-1 flex items-center justify-center gap-1.5 py-2 transition-all",
+                        scraperMode === "url" ? "bg-purple-600 text-white" : "hover:bg-accent/50")}
+                    ><ScanSearch className="h-3.5 w-3.5" /> URL (Scraping automático)
+                    </button>
+                    <button
+                      onClick={() => setScraperMode("images")}
+                      className={cn("flex-1 flex items-center justify-center gap-1.5 py-2 transition-all",
+                        scraperMode === "images" ? "bg-purple-600 text-white" : "hover:bg-accent/50")}
+                    ><ImagePlus className="h-3.5 w-3.5" /> Prints manuais
+                    </button>
                   </div>
 
-                  {/* Image previews */}
-                  {refImages.length > 0 && (
-                    <div className="flex flex-wrap gap-2">
-                      {refImages.map((img, i) => (
-                        <div key={i} className="relative group">
-                          <img src={img.base64} alt={img.name} className="h-20 w-28 object-cover rounded-lg border" />
-                          <button
-                            onClick={() => setRefImages(prev => prev.filter((_, idx) => idx !== i))}
-                            className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-destructive text-white hidden group-hover:flex items-center justify-center"
-                          ><X className="h-3 w-3" /></button>
-                          <p className="text-[9px] text-muted-foreground truncate max-w-[112px] mt-0.5">{img.name}</p>
+                  {/* URL mode */}
+                  {scraperMode === "url" && (
+                    <div className="space-y-3">
+                      <div className="flex gap-2">
+                        <div className="relative flex-1">
+                          <Link className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                          <input
+                            type="url"
+                            placeholder="https://site-de-referencia.com.br"
+                            value={scraperUrl}
+                            onChange={e => setScraperUrl(e.target.value)}
+                            onKeyDown={e => e.key === "Enter" && scrapeUrl()}
+                            className="w-full pl-8 pr-3 py-2 text-xs border rounded-lg bg-background focus:outline-none focus:ring-1 focus:ring-purple-500"
+                          />
                         </div>
-                      ))}
+                        <Button
+                          size="sm"
+                          onClick={scrapeUrl}
+                          disabled={scraping || !scraperUrl.trim()}
+                          className="gap-1.5 bg-purple-600 hover:bg-purple-700 text-white shrink-0"
+                        >
+                          {scraping ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Raspando…</> : <><ScanSearch className="h-3.5 w-3.5" />Analisar site</>}
+                        </Button>
+                      </div>
+
+                      {scraping && (
+                        <div className="flex items-center gap-2 text-xs text-purple-600 bg-purple-500/10 rounded-lg p-3">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+                          Raspando o site com Firecrawl — extraindo estrutura, conteúdo e screenshot…
+                        </div>
+                      )}
+
+                      {scrapedData && (
+                        <div className="rounded-xl border border-purple-500/30 overflow-hidden bg-purple-500/5">
+                          <div className="flex items-center gap-2 px-3 py-2 border-b border-purple-500/20 bg-purple-500/10">
+                            <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                            <span className="text-xs font-medium truncate">{scrapedData.title ?? scrapedData.url}</span>
+                            <span className="ml-auto text-[10px] text-muted-foreground shrink-0">{(scrapedData.markdown.length / 1000).toFixed(1)}k chars</span>
+                          </div>
+                          {scrapedData.screenshot && (
+                            <img src={scrapedData.screenshot} alt="Screenshot" className="w-full max-h-40 object-cover object-top" />
+                          )}
+                          <p className="text-[10px] text-muted-foreground px-3 py-2">
+                            ✅ Conteúdo extraído. Defina o nível de fidelidade abaixo e envie.
+                          </p>
+                        </div>
+                      )}
                     </div>
                   )}
 
-                  {/* Design mode */}
+                  {/* Images mode */}
+                  {scraperMode === "images" && (
+                    <div className="space-y-3">
+                      <div
+                        className="border-2 border-dashed border-purple-500/30 rounded-xl p-5 text-center cursor-pointer hover:bg-purple-500/5 transition-colors"
+                        onClick={() => fileInputRef.current?.click()}
+                        onDragOver={e => e.preventDefault()}
+                        onDrop={e => { e.preventDefault(); handleImageFiles(e.dataTransfer.files); }}
+                      >
+                        <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden"
+                          onChange={e => handleImageFiles(e.target.files)} />
+                        <ImagePlus className="h-8 w-8 text-purple-400 mx-auto mb-2" />
+                        <p className="text-xs text-muted-foreground">Arraste prints aqui ou clique para selecionar</p>
+                        <p className="text-[10px] text-muted-foreground/60 mt-1">PNG, JPG, WebP • máx. 5 imagens</p>
+                      </div>
+                      {refImages.length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                          {refImages.map((img, i) => (
+                            <div key={i} className="relative group">
+                              <img src={img.base64} alt={img.name} className="h-20 w-28 object-cover rounded-lg border" />
+                              <button onClick={() => setRefImages(prev => prev.filter((_, idx) => idx !== i))}
+                                className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-destructive text-white hidden group-hover:flex items-center justify-center"
+                              ><X className="h-3 w-3" /></button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Fidelity options */}
                   <div className="space-y-1.5">
-                    <Label className="text-xs font-semibold">Nível de fidelidade às referências</Label>
+                    <Label className="text-xs font-semibold">Nível de fidelidade à referência</Label>
                     <div className="grid grid-cols-2 gap-2">
                       {([
                         { id: "identical", label: "🔁 Idêntico", desc: "Replicar exatamente" },
@@ -469,15 +583,9 @@ export default function AgentesIA() {
                         { id: "elements", label: "🎯 Elementos específicos", desc: "Definir o que copiar" },
                         { id: "inspiration", label: "💡 Apenas inspiração", desc: "Conceito geral, livre criação" },
                       ] as const).map(opt => (
-                        <button
-                          key={opt.id}
-                          onClick={() => setDesignMode(opt.id)}
-                          className={cn(
-                            "p-2.5 rounded-lg border text-left text-xs transition-all",
-                            designMode === opt.id
-                              ? "border-purple-500 bg-purple-500/10 text-purple-700 dark:text-purple-300"
-                              : "border-border hover:bg-accent/50"
-                          )}
+                        <button key={opt.id} onClick={() => setDesignMode(opt.id)}
+                          className={cn("p-2.5 rounded-lg border text-left text-xs transition-all",
+                            designMode === opt.id ? "border-purple-500 bg-purple-500/10 text-purple-700 dark:text-purple-300" : "border-border hover:bg-accent/50")}
                         >
                           <div className="font-medium">{opt.label}</div>
                           <div className="text-muted-foreground text-[10px]">{opt.desc}</div>
@@ -486,21 +594,18 @@ export default function AgentesIA() {
                     </div>
                   </div>
 
-                  {/* Design notes */}
+                  {/* Notes */}
                   <div className="space-y-1.5">
                     <Label className="text-xs font-semibold">Instruções específicas (opcional)</Label>
-                    <Textarea
-                      className="text-xs min-h-[70px] resize-none"
-                      placeholder="Ex: Quero o hero igual ao da referência 1, mas com as cores da marca. O menu deve ser igual ao da referência 2. Cards de serviços devem ser completamente diferentes — mais modernos..."
-                      value={designNotes}
-                      onChange={e => setDesignNotes(e.target.value)}
-                    />
+                    <Textarea className="text-xs min-h-[60px] resize-none"
+                      placeholder="Ex: Manter a estrutura do hero, adaptar cores para a paleta da marca. Menu diferente — mais clean..."
+                      value={designNotes} onChange={e => setDesignNotes(e.target.value)} />
                   </div>
 
-                  {refImages.length === 0 && (
+                  {scraperMode === "url" && !scrapedData && !scraping && (
                     <div className="flex items-start gap-2 text-[11px] text-amber-700 dark:text-amber-400 bg-amber-500/10 rounded-lg p-2.5">
                       <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                      Você pode continuar sem imagens — o agente criará o design baseado no posicionamento e copy aprovados.
+                      Cole a URL do site de referência e clique em "Analisar site" antes de enviar.
                     </div>
                   )}
                 </div>
