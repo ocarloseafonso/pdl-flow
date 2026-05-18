@@ -287,8 +287,10 @@ export default function AgentesIA() {
         contextMessages = buildContextMessages(agentState, activeAgent);
       }
 
-      // Agent 1: first run if no output yet (more reliable than counting messages)
-      const isAgent1FirstRun = activeAgent === 1 && !safeState.output;
+      // Agent 1: first run = no assistant messages yet in history AND no strategy output saved
+      // This is more robust than just checking output, because output could be stale from a previous session
+      const hasAssistantReply = safeState.messages.some(m => m.role === "assistant");
+      const isAgent1FirstRun = activeAgent === 1 && !hasAssistantReply && !safeState.output;
       if (isAgent1FirstRun) {
         await generateStrategySections([userMsg], key, systemPrompt, contextMessages, s1, updatedMsgs);
       } else {
@@ -300,10 +302,12 @@ export default function AgentesIA() {
         } else {
           if (activeAgent === 1) {
             // CONVERSATIONAL MODE: lean history + capped tokens (max 1200)
+            // Compress all long assistant messages (strategy sections) into a short placeholder
+            // so GPT doesn't try to mimic the strategy format
             const convPrompt = getAgent1ConversationalPrompt(buildClientContext(selectedClient));
             const leanMsgs: Message[] = updatedMsgs.map(m => {
               if (m.role === "assistant" && m.content.length > 600) {
-                return { role: "assistant" as const, content: "[Estratégia já gerada — consulte as abas. Responda de forma conversacional e breve.]" };
+                return { role: "assistant" as const, content: "[Estratégia completa já gerada nas 9 seções. Agora estamos em modo de conversa. Responda de forma breve e direta.]" };
               }
               return m;
             });
@@ -312,13 +316,22 @@ export default function AgentesIA() {
             reply = await callRegularAgent(updatedMsgs, contextMessages, systemPrompt, key);
           }
         }
+
+        // For Agent 1 in conversational mode: PRESERVE the strategy output, only append messages
+        // This ensures isAgent1FirstRun stays false and the strategy tabs keep working
+        const existingOutput = s1[activeAgent]?.output ?? "";
+        const shouldPreserveOutput = activeAgent === 1 && existingOutput.length > 600;
         const s2: AllAgentState = {
           ...s1,
-          [activeAgent]: { ...s1[activeAgent], messages: [...updatedMsgs, { role: "assistant", content: reply }], output: reply },
+          [activeAgent]: {
+            ...s1[activeAgent],
+            messages: [...updatedMsgs, { role: "assistant", content: reply }],
+            output: shouldPreserveOutput ? existingOutput : reply,
+          },
         };
         setAgentState(s2);
         persist(s2);
-        if (activeAgent === 1) {
+        if (activeAgent === 1 && !shouldPreserveOutput) {
           const gaps = detectMissingInfo(reply);
           if (gaps.length > 0) { setMissingInfoLines(gaps); setMissingInfoState("warning"); }
           else { setMissingInfoLines([]); setMissingInfoState("none"); }

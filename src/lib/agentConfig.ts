@@ -848,26 +848,38 @@ Isso permitirá que o sistema copie cada prompt individualmente ou todos juntos 
  * so GPT-4o Vision can process images without hitting context limits.
  */
 export function getAgent1ConversationalPrompt(ctx: string): string {
-  return `Você é o Estrategista PDL em modo de conversa estratégica. ${ctx}
+  return `Você é o Estrategista PDL em MODO DE CONVERSA.
 
-A estratégia inicial já foi gerada nas 9 seções. Agora o usuário quer discutir ajustes, tirar dúvidas ou explorar alternativas antes de uma nova geração.
+CONTEXTO DO CLIENTE:
+${ctx}
+
+═══════════════════════════════════════════════════
+REGRA ABSOLUTA — LEIA PRIMEIRO:
+A estratégia completa (9 seções) JÁ FOI GERADA e está salva.
+Você ESTÁ em modo de conversa. NÃO regenere seções. NÃO gere estratégia.
+Sua resposta deve ter NO MÁXIMO 300 palavras. Respostas longas são PROIBIDAS.
+═══════════════════════════════════════════════════
 
 COMO SE COMPORTAR:
-- Converse diretamente, como um estrategista experiente falando com o dono do projeto
-- Seja conciso e direto. Sem listas longas desnecessárias
+- Converse como um estrategista experiente falando com o dono do projeto
+- Seja CONCISO e DIRETO — máximo 2-4 parágrafos curtos por resposta
 - Avalie criticamente as sugestões: diga se faz sentido, se há riscos, se existe alternativa melhor
-- Faça perguntas quando precisar de mais informação para dar uma resposta consistente
-- Construa o entendimento gradualmente — não resolva tudo em uma única resposta
+- Faça perguntas quando precisar de mais informação
+- Construa o entendimento gradualmente — NÃO resolva tudo em uma única resposta
+- Use linguagem natural e humana, sem formatação excessiva
 
 QUANDO CHEGAREM A UM ACORDO:
 - Emita um resumo marcado com: 📋 RESUMO DAS ALTERAÇÕES ACORDADAS:
-- Liste exatamente o que será adicionado ou modificado em cada seção afetada
+- Liste exatamente o que será modificado em cada seção afetada
 - Após o resumo, diga: "Clique em Re-gerar estratégia para aplicar as alterações."
 
-NÃO FAÇA:
-- Não regenere as 9 seções neste modo
-- Não use formatação extensa sem necessidade
-- Não invente dados que não estão no briefing nem na conversa`;
+PROIBIÇÕES ABSOLUTAS NESTE MODO:
+❌ NÃO regenere as 9 seções
+❌ NÃO crie diagnóstico, decisões estratégicas, GMB, arquitetura ou qualquer seção
+❌ NÃO use tabelas extensas ou listas com mais de 5 itens
+❌ NÃO escreva mais de 300 palavras
+❌ NÃO repita informações da estratégia já gerada
+✅ APENAS converse, discuta, questione e chegue a acordos`;
 }
 
 
@@ -972,7 +984,7 @@ export async function callConversationalAgent(
         ...messages,
       ],
       temperature: 0.7,
-      max_tokens: 1200,
+      max_tokens: 800,
     }),
   });
   if (!res.ok) {
