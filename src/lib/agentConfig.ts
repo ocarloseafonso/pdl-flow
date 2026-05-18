@@ -35,6 +35,61 @@ export const AGENTS: { id: number; emoji: string; label: string; isSenior: boole
 ];
 
 /* ═══════════════════════════════════════════════════
+   PARENT AGENT MAP — rejection routing
+═══════════════════════════════════════════════════ */
+export const PARENT_AGENT: Record<number, number> = {
+  11: 1,   // Auditor → Estrategista
+  12: 1,   // Decisor → Estrategista (falha estrutural)
+  102: 2,  // Revisor Keywords → Analista Keywords
+  103: 3,  // Revisor GMB → Especialista GMB
+  104: 4,  // Revisor Estrutura → Arquiteto
+  105: 5,  // Revisor Copy → Copywriter
+  106: 6,  // Revisor Blog → Redator Blog
+};
+
+/* ═══════════════════════════════════════════════════
+   MISSING INFO DETECTION
+═══════════════════════════════════════════════════ */
+export function detectMissingInfo(output: string): string[] {
+  const missing: string[] = [];
+  const patterns = [
+    /informaç[aã]o.{0,20}falt/i,
+    /dado.{0,10}n[aã]o.{0,10}inform/i,
+    /n[aã]o foi inform/i,
+    /falta.{0,20}para.{0,20}decis/i,
+    /n[aã]o\s+informado/i,
+    /n[aã]o fornecid/i,
+    /campo.{0,10}vazio/i,
+    /n[aã]o.{0,10}dispon[ií]vel/i,
+  ];
+  output.split("\n").forEach(line => {
+    const t = line.trim().replace(/\*\*/g, "");
+    if (t.length > 10 && patterns.some(p => p.test(t))) {
+      missing.push(t.substring(0, 130));
+    }
+  });
+  return [...new Set(missing)].slice(0, 8);
+}
+
+/* ═══════════════════════════════════════════════════
+   STRATEGY SECTION PARSER (for Agent 1 multi-panel)
+═══════════════════════════════════════════════════ */
+export function parseStrategySections(output: string): Array<{ label: string; content: string }> {
+  // Match "1. Diagnóstico", "**2. Decisões**", "## 3. GMB" etc.
+  const regex = /(?:^|\n)(?:\*{0,2}#{0,3}\s*)(\d+\.\s+[^\n*#]{3,60})(?:\*{0,2})/gm;
+  const positions: Array<{ label: string; index: number }> = [];
+  let m: RegExpExecArray | null;
+  while ((m = regex.exec(output)) !== null) {
+    positions.push({ label: m[1].trim(), index: m.index });
+  }
+  if (positions.length < 2) return [];
+  return positions.map((pos, i) => ({
+    label: pos.label,
+    content: output.substring(pos.index, positions[i + 1]?.index ?? output.length).trim(),
+  })).filter(s => s.content.length > 40);
+}
+
+/* ═══════════════════════════════════════════════════
    PERSISTENCE — localStorage per client
 ═══════════════════════════════════════════════════ */
 const storageKey = (clientId: string) => `pdl_agents_v2_${clientId}`;

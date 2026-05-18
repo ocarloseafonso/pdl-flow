@@ -6,6 +6,7 @@ import {
   makeInitialState, loadSession, saveSession, clearSession,
   buildClientContext, getSystemPrompt, getVisionSystemPrompt, buildContextMessages,
   callRegularAgent, callSeniorAgent, callVisionAgent,
+  PARENT_AGENT, detectMissingInfo, parseStrategySections,
 } from "@/lib/agentConfig";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -17,7 +18,7 @@ import { Label } from "@/components/ui/label";
 import {
   BrainCircuit, Send, CheckCircle2, Lock, Loader2,
   ChevronRight, RotateCcw, Copy, CheckCheck, User, Trash2, GraduationCap,
-  Palette, ImagePlus, X, Info, Link, ScanSearch,
+  Palette, ImagePlus, X, Info, Link, ScanSearch, RefreshCw, XCircle, AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -39,6 +40,13 @@ export default function AgentesIA() {
   const [designMode, setDesignMode] = useState<"identical" | "modeled" | "elements" | "inspiration">("modeled");
   const [designNotes, setDesignNotes] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Missing info warning
+  const [missingInfoLines, setMissingInfoLines] = useState<string[]>([]);
+  const [missingInfoState, setMissingInfoState] = useState<"none"|"warning"|"approved"|"blocked">("none");
+  // Refresh
+  const [refreshing, setRefreshing] = useState(false);
+  // Strategy section active tab
+  const [activeSection, setActiveSection] = useState(0);
   // Scraper mode state
   const [scraperMode, setScraperMode] = useState<"images" | "url">("url");
   const [scraperUrl, setScraperUrl] = useState("");
@@ -69,6 +77,9 @@ export default function AgentesIA() {
       setAgentState(fresh);
       setActiveAgent(PIPELINE[0]);
     }
+    setMissingInfoLines([]);
+    setMissingInfoState("none");
+    setActiveSection(0);
   }, [selectedClientId]);
 
   /* ── auto-scroll ── */
@@ -84,6 +95,19 @@ export default function AgentesIA() {
   const persist = useCallback((newState: AllAgentState) => {
     if (selectedClientId) saveSession(selectedClientId, newState);
   }, [selectedClientId]);
+
+  async function refreshClient() {
+    if (!selectedClientId) return;
+    setRefreshing(true);
+    try {
+      const { data } = await supabase.from("clients").select("*").eq("id", selectedClientId).single();
+      if (data) {
+        setClients(prev => prev.map(cl => cl.id === selectedClientId ? data as unknown as Client : cl));
+        toast.success("Briefing atualizado! Envie nova mensagem para o agente usar os dados novos.");
+      }
+    } catch { toast.error("Erro ao atualizar."); }
+    finally { setRefreshing(false); }
+  }
 
   /* ── Firecrawl scraping ── */
   async function scrapeUrl() {
@@ -206,6 +230,12 @@ export default function AgentesIA() {
       };
       setAgentState(s2);
       persist(s2);
+      if (activeAgent === 1) {
+        const gaps = detectMissingInfo(reply);
+        if (gaps.length > 0) { setMissingInfoLines(gaps); setMissingInfoState("warning"); }
+        else { setMissingInfoLines([]); setMissingInfoState("none"); }
+        setActiveSection(0);
+      }
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Erro na API");
     } finally {
@@ -244,6 +274,49 @@ export default function AgentesIA() {
     } else {
       toast.success("Pipeline completo!");
     }
+  }
+
+  /* -- Reject and return -- */
+  async function rejectAndReturn() {
+    if (!currentState?.output || loading) return;
+    const parentId = PARENT_AGENT[activeAgent];
+    if (parentId === undefined) { toast.error("Este agente nao tem um agente anterior para corrigir."); return; }
+    const key = localStorage.getItem("OPENAI_API_KEY");
+    if (!key || !selectedClient) return;
+    const parentState = agentState[parentId];
+    if (!parentState) return;
+    const criticLabel = AGENTS.find(a => a.id === activeAgent)?.label ?? ("Agente " + activeAgent);
+    const rejectionMsg = {
+      role: "user" as const,
+      content: "O " + criticLabel + " identificou falhas na sua entrega anterior:\n\n" + currentState.output + "\n\n---\nCorriga APENAS as secoes marcadas com FALHA ou ATENCAO. As aprovadas devem ser mantidas como estao. Entregue a versao corrigida completa.",
+    };
+    const updatedParentMsgs = [...parentState.messages, rejectionMsg];
+    const s1 = { ...agentState, [activeAgent]: { ...currentState, status: "active" as const }, [parentId]: { ...parentState, status: "active" as const, messages: updatedParentMsgs } };
+    setAgentState(s1);
+    persist(s1);
+    setActiveAgent(parentId);
+    setActiveSection(0);
+    setLoading(true);
+    toast.info("Enviando criticas ao agente anterior...");
+    try {
+      const systemPrompt = getSystemPrompt(parentId, buildClientContext(selectedClient), agentState);
+      const contextMessages = buildContextMessages(agentState, parentId);
+      const parentDef = AGENTS.find(a => a.id === parentId);
+      const reply = parentDef?.isSenior
+        ? await callSeniorAgent(updatedParentMsgs, contextMessages, systemPrompt, key)
+        : await callRegularAgent(updatedParentMsgs, contextMessages, systemPrompt, key);
+      const s2 = { ...s1, [parentId]: { ...s1[parentId], messages: [...updatedParentMsgs, { role: "assistant" as const, content: reply }], output: reply } };
+      setAgentState(s2);
+      persist(s2);
+      if (parentId === 1) {
+        const gaps = detectMissingInfo(reply);
+        setMissingInfoLines(gaps);
+        setMissingInfoState(gaps.length > 0 ? "warning" : "none");
+      }
+      toast.success("Versao corrigida gerada! Revise e aprove ou reprove novamente.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro na API");
+    } finally { setLoading(false); }
   }
 
   /* ── Reopen agent — unlock without clearing anything ── */
@@ -342,6 +415,7 @@ export default function AgentesIA() {
         {/* Client selector */}
         <div className="p-3 border-b space-y-2 shrink-0">
           <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Cliente ativo</p>
+          <div className="flex gap-1 items-start">
           <Select
             value={selectedClientId}
             onValueChange={v => { setSelectedClientId(v); setInput(""); }}
@@ -357,6 +431,12 @@ export default function AgentesIA() {
               ))}
             </SelectContent>
           </Select>
+          {selectedClient && (
+            <button onClick={refreshClient} disabled={refreshing} title="Atualizar briefing do cliente" className="shrink-0 h-8 w-8 flex items-center justify-center rounded-md border hover:bg-accent/50 transition-colors disabled:opacity-50">
+              <RefreshCw className={"h-3 w-3" + (refreshing ? " animate-spin" : "")} />
+            </button>
+          )}
+          </div>
           {selectedClient && (
             <div className="flex items-center justify-between">
               <span className="text-[10px] text-muted-foreground">
@@ -473,8 +553,13 @@ export default function AgentesIA() {
                 <RotateCcw className="h-3 w-3" /> Reiniciar
               </Button>
             )}
+            {currentState?.output && currentState?.status !== "done" && PARENT_AGENT[activeAgent] !== undefined && (
+              <Button size="sm" variant="outline" className="gap-1 text-xs h-7 text-rose-600 border-rose-400/50 hover:bg-rose-500/10" onClick={rejectAndReturn} disabled={loading} title="Reprovar e enviar correcões ao agente anterior">
+                <XCircle className="h-3 w-3" /> Reprovar
+              </Button>
+            )}
             {currentState?.output && currentState?.status !== "done" && (
-              <Button size="sm" className="gap-1 text-xs h-7" onClick={approveAndAdvance}>
+              <Button size="sm" className="gap-1 text-xs h-7" onClick={approveAndAdvance} disabled={missingInfoState === "blocked" || loading}>
                 <CheckCircle2 className="h-3 w-3" /> Aprovar e avançar
               </Button>
             )}
@@ -507,6 +592,31 @@ export default function AgentesIA() {
           </div>
         )}
 
+        {/* Missing info banners - Agent 1 */}
+        {activeAgent === 1 && missingInfoState === "warning" && (
+          <div className="px-4 py-3 bg-amber-500/10 border-b border-amber-500/30 shrink-0 space-y-2">
+            <div className="flex items-start gap-2 text-amber-700 dark:text-amber-400">
+              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+              <div className="flex-1 text-xs"><p className="font-semibold mb-1">Informacoes insuficientes detectadas:</p><ul className="list-disc list-inside text-[11px] opacity-80 space-y-0.5">{missingInfoLines.map((l,i)=><li key={i}>{l}</li>)}</ul></div>
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              <button onClick={()=>setMissingInfoState("approved")} className="text-[11px] px-3 py-1.5 rounded-md bg-amber-500 text-white hover:bg-amber-600 font-medium">Prosseguir mesmo assim</button>
+              <button onClick={()=>setMissingInfoState("blocked")} className="text-[11px] px-3 py-1.5 rounded-md border border-amber-500/50 text-amber-700 dark:text-amber-400 hover:bg-amber-500/10 font-medium">Aguardar informacao</button>
+            </div>
+          </div>
+        )}
+        {activeAgent === 1 && missingInfoState === "blocked" && (
+          <div className="px-4 py-2 bg-rose-500/10 border-b border-rose-500/30 text-[11px] text-rose-700 dark:text-rose-400 flex items-center gap-2 shrink-0">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            <span className="flex-1">Aprovacao bloqueada. Atualize o briefing (botao refresh) ou adicione a informacao no chat e clique em Aprovar.</span>
+            <button onClick={()=>setMissingInfoState("approved")} className="shrink-0 text-[10px] px-2 py-1 rounded bg-rose-500/20 hover:bg-rose-500/30 font-medium">Desbloquear</button>
+          </div>
+        )}
+        {activeAgent === 1 && missingInfoState === "approved" && (
+          <div className="px-4 py-1.5 bg-green-500/10 border-b border-green-500/20 text-[11px] text-green-700 dark:text-green-400 flex items-center gap-1.5 shrink-0">
+            <CheckCircle2 className="h-3 w-3" /> Aprovado com informacoes pendentes.
+          </div>
+        )}
         {/* Messages */}
         <div className="flex-1 overflow-auto px-5 py-4">
           {!selectedClient ? (
@@ -690,6 +800,32 @@ export default function AgentesIA() {
           ) : (
             <div className="space-y-4 pb-4">
               {currentState.messages.map((msg, i) => {
+                // -- Agent 1 multi-section tabs --
+                if (activeAgent === 1 && msg.role === "assistant" && i === currentState.messages.length - 1) {
+                  const secs = parseStrategySections(msg.content);
+                  if (secs.length >= 2) {
+                    return (
+                      <div key={i} className="space-y-3 w-full">
+                        <div className="flex flex-wrap gap-1 px-1">
+                          {secs.map((s,si)=>(
+                            <button key={si} onClick={()=>setActiveSection(si)} className={"text-[10px] px-2.5 py-1 rounded-full border font-medium transition-all "+(activeSection===si?"bg-primary text-primary-foreground border-primary":"border-border hover:bg-accent/50")}>
+                              {s.label.length>32?s.label.substring(0,30)+"...":s.label}
+                            </button>
+                          ))}
+                          <button onClick={()=>setActiveSection(-1)} className={"text-[10px] px-2.5 py-1 rounded-full border font-medium transition-all "+(activeSection===-1?"bg-muted text-foreground":"border-border text-muted-foreground hover:bg-accent/50")}>Ver tudo</button>
+                        </div>
+                        <Card className="border-primary/20 bg-primary/5 overflow-hidden">
+                          <div className="flex items-center justify-between px-4 py-2 border-b border-primary/15 bg-primary/10">
+                            <span className="text-xs font-bold text-primary">{activeSection===-1?"Estrategia Completa":secs[activeSection]?.label}</span>
+                            <button onClick={async()=>{await navigator.clipboard.writeText(activeSection===-1?msg.content:secs[activeSection]?.content??"");toast.success("Copiado!");}} className="text-[11px] flex items-center gap-1 px-2 py-0.5 rounded border border-primary/20 hover:bg-primary/10"><Copy className="h-2.5 w-2.5"/>Copiar</button>
+                          </div>
+                          <div className="px-4 py-3 text-sm whitespace-pre-wrap leading-relaxed text-foreground/90 max-h-[60vh] overflow-y-auto">{activeSection===-1?msg.content:secs[activeSection]?.content}</div>
+                        </Card>
+                      </div>
+                    );
+                  }
+                }
+
                 // ── Special rendering for Engenheiro de Prompt (agent 7) assistant messages ──
                 if (activeAgent === 7 && msg.role === "assistant") {
                   const sections = parseEngPrompts(msg.content);
