@@ -90,6 +90,97 @@ export function parseStrategySections(output: string): Array<{ label: string; co
 }
 
 /* ═══════════════════════════════════════════════════
+   STRATEGY SECTIONS — Sequential generation for Agent 1
+   Each section = one API call with focused instruction
+═══════════════════════════════════════════════════ */
+export const STRATEGY_SECTIONS: Array<{ label: string; focus: string }> = [
+  {
+    label: "1. Diagnóstico do Cenário",
+    focus: `Classifique o cliente nos 6 eixos OBRIGATÓRIOS e forneça o diagnóstico:
+- Eixo 1 — Modelo de atendimento (marque e justifique)
+- Eixo 2 — Estrutura de entidade (marque e justifique)
+- Eixo 3 — Posição atual (marque e justifique)
+- Eixo 4 — Cenário competitivo (marque e justifique)
+- Eixo 5 — Restrições do nicho (marque e justifique)
+- Eixo 6 — Problema declarado (marque e justifique)
+Após a classificação: resumo de no máximo 5 linhas do diagnóstico geral. Sinalize claramente qualquer informação que falta no briefing e qual decisão ela afetaria.`,
+  },
+  {
+    label: "2. Decisões Estratégicas Fundamentais",
+    focus: `Liste TODAS as decisões tomadas especificamente para este cliente. Use OBRIGATORIAMENTE o formato: "Como [situação identificada no briefing], então [decisão estratégica específica]."
+Mínimo 6 decisões. Máximo 10. Nenhuma pode ser genérica — cada uma deve ter origem rastreável no briefing ou na classificação da seção anterior. Inclua decisões sobre: modelo de presença, tipo de GMB, páginas de bairro (sim/não e por quê), abordagem de keywords, tipo de conteúdo priorizado.`,
+  },
+  {
+    label: "3. Estrutura de Entidade",
+    focus: `Defina com precisão a estrutura de entidade para este cliente:
+- Tipo principal: LocalBusiness | Organization | Person | combinação
+- Justificativa baseada no briefing (cargo, CNPJ, profissão liberal, etc.)
+- Como isso afeta o schema markup do site (quais schemas usar em quais páginas)
+- Como isso afeta o nome no GMB (Person + Organization = nome do profissional pode aparecer)
+- sameAs: lista de todas as redes sociais e diretórios declarados no briefing para o schema`,
+  },
+  {
+    label: "4. Estratégia GMB",
+    focus: `Entregue com máximo detalhamento:
+1. Nome otimizado — justifique a escolha. Explique por que não inserir keywords adicionais.
+2. Categoria principal — baseada em análise de concorrentes que já ranqueiam. Justifique.
+3. Categorias secundárias (máximo 2) — com justificativa.
+4. Tipo de perfil: endereço físico verificável OU área de atendimento. Se área de atendimento: liste exatamente quais regiões/bairros/cidades e por quê (respeitando o limite de 160km).
+5. Descrição completa (750 chars) — escreva o texto final, não instruções.
+6. Serviços — liste cada serviço com nome, descrição e contexto local.
+7. Q&A estratégico — mínimo 5 perguntas + respostas baseadas nas dúvidas do briefing.
+8. Script de solicitação de avaliações — texto pronto para o cliente usar.
+9. Campos críticos — data de abertura (idêntica ao foundingDate do schema), links de redes sociais, URL.
+10. Alerta de NAP — se houver risco de inconsistência Nome/Endereço/Telefone, sinalize aqui.`,
+  },
+  {
+    label: "5. Arquitetura do Site",
+    focus: `Liste TODAS as páginas do site em formato de tabela detalhada. Para CADA página:
+| URL slug | Tipo | Keyword primária | Objetivo | Schema Markup |
+
+REGRAS OBRIGATÓRIAS:
+- Mínimo de páginas: Home + Sobre + Hub de Serviços + 1 página por serviço + Contato + Blog listagem
+- Se atende online em bairros: 1 página por bairro no formato /[serviço]-[bairro]
+- As páginas de bairro NÃO são posts de blog
+- Inclua indicação de interlinking estratégico (qual página linka para qual e com qual âncora)
+- Para cada página de bairro: descreva brevemente como o conteúdo deve ser diferenciado (perfil do público daquele bairro)`,
+  },
+  {
+    label: "6. Estratégia de Palavras-chave",
+    focus: `Entregue com máximo detalhamento:
+1. Keywords primárias (3-5) — com intenção, nível de concorrência estimado e justificativa
+2. Keywords secundárias (10-20) — organizadas em clusters temáticos, com intenção por keyword
+3. Uma keyword por bairro declarado no briefing (obrigatório se atende online em bairros)
+4. Keywords de cauda longa — mínimo 5 perguntas reais que o público faz antes de contratar
+5. Mapeamento cluster → página: para cada cluster, qual página do site vai ranquear por ele
+6. Sinalização de riscos: keywords com concorrência desproporcional para o estágio atual — sugira alternativas
+ATENÇÃO: Se nicho YMYL, não use o Planejador do Google Ads como fonte. Use: autocomplete, buscas relacionadas, Answer the Public, dúvidas do briefing, análise manual de concorrentes.`,
+  },
+  {
+    label: "7. Estratégia de Conteúdo",
+    focus: `Entregue três entregas completas:
+A) Posts GMB: frequência semanal recomendada, tipos de post (oferta, novidade, evento, produto) com exemplos concretos para este nicho, boas práticas de imagem e CTA para GMB.
+B) Plano de blog completo: liste mínimo 12 artigos organizados por cluster. Para cada artigo: título, keyword primária, cluster, intenção (informacional/transacional/local), prioridade (1-3) e o ângulo único do artigo (por que ele é diferente dos concorrentes).
+C) Conexão blog → páginas: para cada cluster de artigos, indique qual página de serviço ou bairro deve receber link interno desses artigos, e com qual texto âncora.`,
+  },
+  {
+    label: "8. Diretórios e Citações",
+    focus: `Liste APENAS diretórios relevantes para o nicho específico deste cliente. Nada genérico.
+Para cada diretório: Nome | URL | Prioridade (alta/média/baixa) | Instrução de cadastro (o que preencher, o que NÃO fazer, como garantir consistência de NAP).
+Inclua também: órgãos de classe, associações profissionais, plataformas de agendamento ou marketplaces específicos do nicho se aplicável.`,
+  },
+  {
+    label: "9. Próximas Etapas em Ordem de Prioridade",
+    focus: `Liste de 5 a 7 ações concretas em ordem de prioridade. Para cada ação:
+- O que fazer (descrição específica, não genérica)
+- Por que fazer PRIMEIRO/SEGUNDO/etc. (justificativa da ordem baseada no diagnóstico)
+- Resultado esperado em: 30 dias | 60 dias | 90 dias
+- Responsável: cliente, agência, ou ambos
+Inclua uma nota final sobre o principal risco de não executar a estratégia na ordem indicada.`,
+  },
+];
+
+/* ═══════════════════════════════════════════════════
    PERSISTENCE — localStorage per client
 ═══════════════════════════════════════════════════ */
 const storageKey = (clientId: string) => `pdl_agents_v2_${clientId}`;

@@ -6,7 +6,7 @@ import {
   makeInitialState, loadSession, saveSession, clearSession,
   buildClientContext, getSystemPrompt, getVisionSystemPrompt, buildContextMessages,
   callRegularAgent, callSeniorAgent, callVisionAgent,
-  PARENT_AGENT, detectMissingInfo, parseStrategySections,
+  PARENT_AGENT, detectMissingInfo, parseStrategySections, STRATEGY_SECTIONS,
 } from "@/lib/agentConfig";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -47,6 +47,10 @@ export default function AgentesIA() {
   const [refreshing, setRefreshing] = useState(false);
   // Strategy section active tab
   const [activeSection, setActiveSection] = useState(0);
+  // Strategy sequential generation state
+  const [sectionOutputs, setSectionOutputs] = useState<string[]>([]);
+  const [generatingSection, setGeneratingSection] = useState<number | null>(null);
+  const [sectionsComplete, setSectionsComplete] = useState(false);
   // Scraper mode state
   const [scraperMode, setScraperMode] = useState<"images" | "url">("url");
   const [scraperUrl, setScraperUrl] = useState("");
@@ -80,6 +84,9 @@ export default function AgentesIA() {
     setMissingInfoLines([]);
     setMissingInfoState("none");
     setActiveSection(0);
+    setSectionOutputs([]);
+    setGeneratingSection(null);
+    setSectionsComplete(false);
   }, [selectedClientId]);
 
   /* ── auto-scroll ── */
@@ -96,7 +103,72 @@ export default function AgentesIA() {
     if (selectedClientId) saveSession(selectedClientId, newState);
   }, [selectedClientId]);
 
-  async function refreshClient() {
+  /* -- Sequential strategy generation for Agent 1 -- */
+  async function generateStrategySections(
+    userMsg: Message,
+    key: string,
+    baseSystemPrompt: string,
+    contextMessages: Message[],
+    currentS1: AllAgentState,
+    updatedMsgs: Message[]
+  ) {
+    const newSectionOutputs: string[] = [];
+    setSectionOutputs([]);
+    setSectionsComplete(false);
+
+    for (let i = 0; i < STRATEGY_SECTIONS.length; i++) {
+      setGeneratingSection(i);
+      setActiveSection(i);
+
+      const prevCtx = newSectionOutputs.length > 0
+        ? "\n\n== SECOES JA GERADAS (use para coerencia e nao repita) ==\n" +
+          newSectionOutputs.map((o, j) => "--- " + STRATEGY_SECTIONS[j].label + " ---\n" + o).join("\n\n")
+        : "";
+
+      const sectionSystemPrompt = baseSystemPrompt +
+        "\n\n== INSTRUCAO DESTA CHAMADA ==" +
+        "\nVoce esta gerando APENAS a secao \"" + STRATEGY_SECTIONS[i].label + "\"." +
+        "\n\n" + STRATEGY_SECTIONS[i].focus +
+        prevCtx +
+        "\n\n== REGRA ABSOLUTA ==" +
+        "\nNao gere outras secoes. Nao resuma. Maximo detalhamento para esta secao especifica. Comece diretamente pelo conteudo da secao, sem introducao.";
+
+      try {
+        const sectionReply = await callRegularAgent([userMsg], contextMessages, sectionSystemPrompt, key);
+        newSectionOutputs.push(sectionReply);
+        setSectionOutputs(prev => { const n = [...prev]; n[i] = sectionReply; return n; });
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : "Erro na API";
+        newSectionOutputs.push("[ERRO ao gerar esta secao: " + errMsg + "]");
+        setSectionOutputs(prev => { const n = [...prev]; n[i] = newSectionOutputs[i]; return n; });
+      }
+    }
+
+    setGeneratingSection(null);
+    setSectionsComplete(true);
+    setActiveSection(0);
+
+    const fullOutput = STRATEGY_SECTIONS.map((s, i) =>
+      "## " + s.label + "\n\n" + (newSectionOutputs[i] ?? "")
+    ).join("\n\n---\n\n");
+
+    const s2: AllAgentState = {
+      ...currentS1,
+      [1]: {
+        ...currentS1[1],
+        messages: [...updatedMsgs, { role: "assistant" as const, content: fullOutput }],
+        output: fullOutput,
+      },
+    };
+    setAgentState(s2);
+    persist(s2);
+
+    const gaps = detectMissingInfo(fullOutput);
+    if (gaps.length > 0) { setMissingInfoLines(gaps); setMissingInfoState("warning"); }
+    else { setMissingInfoLines([]); setMissingInfoState("none"); }
+  }
+
+    async function refreshClient() {
     if (!selectedClientId) return;
     setRefreshing(true);
     try {
@@ -215,26 +287,31 @@ export default function AgentesIA() {
         contextMessages = buildContextMessages(agentState, activeAgent);
       }
 
-      let reply: string;
-      if (activeAgent === 8) {
-        reply = await callVisionAgent(updatedMsgs, refImages, contextMessages, systemPrompt, key);
-      } else if (agentDef.isSenior) {
-        reply = await callSeniorAgent(updatedMsgs, contextMessages, systemPrompt, key);
+      // Agent 1 first message: sequential section-by-section generation
+      const isAgent1FirstRun = activeAgent === 1 && updatedMsgs.filter(m => m.role === "assistant").length === 0;
+      if (isAgent1FirstRun) {
+        await generateStrategySections(userMsg, key, systemPrompt, contextMessages, s1, updatedMsgs);
       } else {
-        reply = await callRegularAgent(updatedMsgs, contextMessages, systemPrompt, key);
-      }
-
-      const s2: AllAgentState = {
-        ...s1,
-        [activeAgent]: { ...s1[activeAgent], messages: [...updatedMsgs, { role: "assistant", content: reply }], output: reply },
-      };
-      setAgentState(s2);
-      persist(s2);
-      if (activeAgent === 1) {
-        const gaps = detectMissingInfo(reply);
-        if (gaps.length > 0) { setMissingInfoLines(gaps); setMissingInfoState("warning"); }
-        else { setMissingInfoLines([]); setMissingInfoState("none"); }
-        setActiveSection(0);
+        let reply: string;
+        if (activeAgent === 8) {
+          reply = await callVisionAgent(updatedMsgs, refImages, contextMessages, systemPrompt, key);
+        } else if (agentDef.isSenior) {
+          reply = await callSeniorAgent(updatedMsgs, contextMessages, systemPrompt, key);
+        } else {
+          reply = await callRegularAgent(updatedMsgs, contextMessages, systemPrompt, key);
+        }
+        const s2: AllAgentState = {
+          ...s1,
+          [activeAgent]: { ...s1[activeAgent], messages: [...updatedMsgs, { role: "assistant", content: reply }], output: reply },
+        };
+        setAgentState(s2);
+        persist(s2);
+        if (activeAgent === 1) {
+          const gaps = detectMissingInfo(reply);
+          if (gaps.length > 0) { setMissingInfoLines(gaps); setMissingInfoState("warning"); }
+          else { setMissingInfoLines([]); setMissingInfoState("none"); }
+          setActiveSection(0);
+        }
       }
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Erro na API");
@@ -342,6 +419,7 @@ export default function AgentesIA() {
     setAgentState(newState);
     persist(newState);
     setActiveAgent(id);
+    if (id === 1) { setSectionOutputs([]); setGeneratingSection(null); setSectionsComplete(false); setMissingInfoState("none"); }
   }
 
   /* ── Clear entire session ── */
@@ -802,24 +880,59 @@ export default function AgentesIA() {
               {currentState.messages.map((msg, i) => {
                 // -- Agent 1 multi-section tabs --
                 if (activeAgent === 1 && msg.role === "assistant" && i === currentState.messages.length - 1) {
-                  const secs = parseStrategySections(msg.content);
+                  // Use sectionOutputs (sequential) if available, else parse from text (legacy)
+                  const useSectionOutputs = sectionOutputs.length > 0;
+                  const secs = useSectionOutputs
+                    ? STRATEGY_SECTIONS.map((s, si) => ({ label: s.label, content: sectionOutputs[si] ?? "" }))
+                    : parseStrategySections(msg.content);
                   if (secs.length >= 2) {
                     return (
                       <div key={i} className="space-y-3 w-full">
+                        {/* Progress indicator when generating */}
+                        {generatingSection !== null && (
+                          <div className="flex items-center gap-2 text-xs text-primary bg-primary/5 border border-primary/20 rounded-lg px-3 py-2">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+                            <span>Gerando seção {generatingSection + 1}/{STRATEGY_SECTIONS.length}: <strong>{STRATEGY_SECTIONS[generatingSection]?.label}</strong></span>
+                          </div>
+                        )}
+                        {sectionsComplete && (
+                          <div className="flex items-center gap-2 text-xs text-green-700 dark:text-green-400 bg-green-500/5 border border-green-500/20 rounded-lg px-3 py-2">
+                            <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                            <span>Todas as {STRATEGY_SECTIONS.length} seções geradas. Revise e aprove para enviar ao Auditor.</span>
+                          </div>
+                        )}
+                        {/* Section tabs */}
                         <div className="flex flex-wrap gap-1 px-1">
                           {secs.map((s,si)=>(
-                            <button key={si} onClick={()=>setActiveSection(si)} className={"text-[10px] px-2.5 py-1 rounded-full border font-medium transition-all "+(activeSection===si?"bg-primary text-primary-foreground border-primary":"border-border hover:bg-accent/50")}>
-                              {s.label.length>32?s.label.substring(0,30)+"...":s.label}
+                            <button key={si} onClick={()=>setActiveSection(si)}
+                              className={"text-[10px] px-2.5 py-1 rounded-full border font-medium transition-all flex items-center gap-1 " +
+                                (activeSection===si?"bg-primary text-primary-foreground border-primary":"border-border hover:bg-accent/50") +
+                                (generatingSection===si?" animate-pulse":"") +
+                                (useSectionOutputs && !sectionOutputs[si]?" opacity-40":"")
+                              }
+                            >
+                              {generatingSection===si && <Loader2 className="h-2.5 w-2.5 animate-spin"/>}
+                              {useSectionOutputs && sectionOutputs[si] && generatingSection!==si && <CheckCircle2 className="h-2.5 w-2.5 text-green-500"/>}
+                              {si+1}
                             </button>
                           ))}
-                          <button onClick={()=>setActiveSection(-1)} className={"text-[10px] px-2.5 py-1 rounded-full border font-medium transition-all "+(activeSection===-1?"bg-muted text-foreground":"border-border text-muted-foreground hover:bg-accent/50")}>Ver tudo</button>
+                          <button onClick={()=>setActiveSection(-1)} className={"text-[10px] px-2.5 py-1 rounded-full border font-medium transition-all "+(activeSection===-1?"bg-muted text-foreground":"border-border text-muted-foreground hover:bg-accent/50")}>Tudo</button>
                         </div>
+                        {/* Active section content */}
                         <Card className="border-primary/20 bg-primary/5 overflow-hidden">
                           <div className="flex items-center justify-between px-4 py-2 border-b border-primary/15 bg-primary/10">
                             <span className="text-xs font-bold text-primary">{activeSection===-1?"Estrategia Completa":secs[activeSection]?.label}</span>
-                            <button onClick={async()=>{await navigator.clipboard.writeText(activeSection===-1?msg.content:secs[activeSection]?.content??"");toast.success("Copiado!");}} className="text-[11px] flex items-center gap-1 px-2 py-0.5 rounded border border-primary/20 hover:bg-primary/10"><Copy className="h-2.5 w-2.5"/>Copiar</button>
+                            <button onClick={async()=>{
+                              const text = activeSection===-1?msg.content:(secs[activeSection]?.content??"");
+                              await navigator.clipboard.writeText(text);
+                              toast.success("Copiado!");
+                            }} className="text-[11px] flex items-center gap-1 px-2 py-0.5 rounded border border-primary/20 hover:bg-primary/10">
+                              <Copy className="h-2.5 w-2.5"/>Copiar
+                            </button>
                           </div>
-                          <div className="px-4 py-3 text-sm whitespace-pre-wrap leading-relaxed text-foreground/90 max-h-[60vh] overflow-y-auto">{activeSection===-1?msg.content:secs[activeSection]?.content}</div>
+                          <div className="px-4 py-3 text-sm whitespace-pre-wrap leading-relaxed text-foreground/90 max-h-[60vh] overflow-y-auto">
+                            {activeSection===-1 ? msg.content : (secs[activeSection]?.content || (generatingSection!==null?"Gerando...":""))}
+                          </div>
                         </Card>
                       </div>
                     );
