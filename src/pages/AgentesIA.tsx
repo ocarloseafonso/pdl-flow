@@ -5,7 +5,7 @@ import {
   AGENTS, PIPELINE, AllAgentState, AgentState, Message,
   makeInitialState, loadSession, saveSession, clearSession,
   buildClientContext, getSystemPrompt, getVisionSystemPrompt, buildContextMessages, getAgent1ConversationalPrompt,
-  callRegularAgent, callSeniorAgent, callVisionAgent,
+  callRegularAgent, callSeniorAgent, callVisionAgent, callConversationalAgent,
   PARENT_AGENT, detectMissingInfo, parseStrategySections, STRATEGY_SECTIONS,
 } from "@/lib/agentConfig";
 import { Button } from "@/components/ui/button";
@@ -299,16 +299,15 @@ export default function AgentesIA() {
           reply = await callSeniorAgent(updatedMsgs, contextMessages, systemPrompt, key);
         } else {
           if (activeAgent === 1) {
-            // Conversational mode: use lean history (avoid sending the huge strategy output again)
+            // CONVERSATIONAL MODE: lean history + capped tokens (max 1200)
             const convPrompt = getAgent1ConversationalPrompt(buildClientContext(selectedClient));
-            // Build lean history: truncate assistant messages from first generation to a summary header
             const leanMsgs: Message[] = updatedMsgs.map(m => {
-              if (m.role === "assistant" && m.content.length > 800) {
-                return { role: "assistant" as const, content: "[Estratégia completa gerada nas 9 seções — detalhes omitidos para economizar contexto. O usuário pode consultá-los pelas abas.]" };
+              if (m.role === "assistant" && m.content.length > 600) {
+                return { role: "assistant" as const, content: "[Estratégia já gerada — consulte as abas. Responda de forma conversacional e breve.]" };
               }
               return m;
             });
-            reply = await callRegularAgent(leanMsgs, [], convPrompt, key);
+            reply = await callConversationalAgent(leanMsgs, convPrompt, key);
           } else {
             reply = await callRegularAgent(updatedMsgs, contextMessages, systemPrompt, key);
           }

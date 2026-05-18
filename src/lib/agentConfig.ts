@@ -956,6 +956,33 @@ export async function callRegularAgent(
   return data.choices[0].message.content as string;
 }
 
+/** Conversational agent — short replies, capped at 1200 tokens */
+export async function callConversationalAgent(
+  messages: Message[],
+  systemPrompt: string,
+  apiKey: string
+): Promise<string> {
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model: "gpt-4o",
+      messages: [
+        { role: "system", content: systemPrompt },
+        ...messages,
+      ],
+      temperature: 0.7,
+      max_tokens: 1200,
+    }),
+  });
+  if (!res.ok) {
+    const e = await res.json();
+    throw new Error(e.error?.message ?? "Erro na API OpenAI");
+  }
+  const data = await res.json();
+  return data.choices[0].message.content as string;
+}
+
 /** Vision agent — UX Designer with image support (GPT-4o Vision) */
 export async function callVisionAgent(
   messages: Message[],
