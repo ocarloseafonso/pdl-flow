@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Client } from "@/lib/types";
 import {
@@ -233,8 +233,13 @@ export default function AgentesIA() {
     if (nextId) {
       setActiveAgent(nextId);
       const nextWasLocked = agentState[nextId]?.status === "locked";
+      const nextDef = AGENTS.find(a => a.id === nextId);
+      const nextLabel = nextId === 11 ? "🔎 Auditor de Cenário ativado."
+        : nextId === 12 ? "⚖️ Decisor de Estratégia ativado."
+        : nextDef?.isSenior ? "🎓 Revisor Sênior ativado."
+        : "Próximo agente desbloqueado.";
       toast.success(nextWasLocked
-        ? `Aprovado! ${nextId >= 100 ? "🎓 Revisor Sênior ativado." : "Próximo agente desbloqueado."}`
+        ? `Aprovado! ${nextLabel}`
         : "Aprovado! Próximo agente já estava disponível.");
     } else {
       toast.success("Pipeline completo!");
@@ -492,11 +497,13 @@ export default function AgentesIA() {
           </div>
         </div>
 
-        {/* Senior agent notice */}
+        {/* Senior / Auditor agent notice */}
         {agentDef.isSenior && (
           <div className="px-4 py-2 bg-amber-500/5 border-b border-amber-500/20 text-[11px] text-amber-700 dark:text-amber-400 flex items-center gap-2 shrink-0">
             <GraduationCap className="h-3.5 w-3.5 shrink-0" />
-            Agente Sênior — acessa internet, raciocina profundamente e valida o output do agente anterior antes de você aprovar.
+            {activeAgent === 11
+              ? "Auditor de Cenário — avalia a estratégia do Estrategista PDL com critérios fixos e pesquisa na web. O parecer será encaminhado ao Decisor."
+              : "Agente Sênior — acessa internet, raciocina profundamente e valida o output do agente anterior antes de você aprovar."}
           </div>
         )}
 
@@ -655,7 +662,11 @@ export default function AgentesIA() {
                   <div className="text-4xl">{agentDef.emoji}</div>
                   <p className="font-semibold text-sm">{agentDef.label}</p>
                   <p className="text-xs text-muted-foreground max-w-sm">
-                    {agentDef.isSenior
+                    {activeAgent === 11
+                      ? `Diga "Auditar agora" para o Auditor avaliar a estratégia do Estrategista com pesquisa na web.`
+                      : activeAgent === 12
+                      ? `Diga "Pode decidir" para o Decisor consolidar a estratégia com base na auditoria.`
+                      : agentDef.isSenior
                       ? `Diga "Revisar agora" para o Revisor Sênior analisar o output do agente anterior com pesquisa na web.`
                       : `Diga "Pode começar" para iniciar com base nos dados de ${selectedClient.name}.`}
                   </p>
@@ -663,7 +674,12 @@ export default function AgentesIA() {
                     variant="outline"
                     size="sm"
                     className="mt-1 text-xs"
-                    onClick={() => setInput(agentDef.isSenior ? "Revisar agora." : "Pode começar.")}
+                    onClick={() => setInput(
+                      activeAgent === 11 ? "Auditar agora."
+                      : activeAgent === 12 ? "Pode decidir. Analise a estratégia e o parecer do Auditor e gere a versão final."
+                      : agentDef.isSenior ? "Revisar agora."
+                      : "Pode começar."
+                    )}
                   >
                     Usar sugestão
                   </Button>
