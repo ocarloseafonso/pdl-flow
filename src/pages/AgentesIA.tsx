@@ -287,8 +287,8 @@ export default function AgentesIA() {
         contextMessages = buildContextMessages(agentState, activeAgent);
       }
 
-      // Agent 1 first message: sequential section-by-section generation
-      const isAgent1FirstRun = activeAgent === 1 && updatedMsgs.filter(m => m.role === "assistant").length === 0;
+      // Agent 1: first run if no output yet (more reliable than counting messages)
+      const isAgent1FirstRun = activeAgent === 1 && !safeState.output;
       if (isAgent1FirstRun) {
         await generateStrategySections([userMsg], key, systemPrompt, contextMessages, s1, updatedMsgs);
       } else {
@@ -298,10 +298,20 @@ export default function AgentesIA() {
         } else if (agentDef.isSenior) {
           reply = await callSeniorAgent(updatedMsgs, contextMessages, systemPrompt, key);
         } else {
-          const effectivePrompt = (activeAgent === 1)
-            ? getAgent1ConversationalPrompt(buildClientContext(selectedClient))
-            : systemPrompt;
-          reply = await callRegularAgent(updatedMsgs, contextMessages, effectivePrompt, key);
+          if (activeAgent === 1) {
+            // Conversational mode: use lean history (avoid sending the huge strategy output again)
+            const convPrompt = getAgent1ConversationalPrompt(buildClientContext(selectedClient));
+            // Build lean history: truncate assistant messages from first generation to a summary header
+            const leanMsgs: Message[] = updatedMsgs.map(m => {
+              if (m.role === "assistant" && m.content.length > 800) {
+                return { role: "assistant" as const, content: "[Estratégia completa gerada nas 9 seções — detalhes omitidos para economizar contexto. O usuário pode consultá-los pelas abas.]" };
+              }
+              return m;
+            });
+            reply = await callRegularAgent(leanMsgs, [], convPrompt, key);
+          } else {
+            reply = await callRegularAgent(updatedMsgs, contextMessages, systemPrompt, key);
+          }
         }
         const s2: AllAgentState = {
           ...s1,
@@ -885,7 +895,7 @@ export default function AgentesIA() {
                     {activeAgent === 11
                       ? `Diga "Auditar agora" para o Auditor avaliar a estratégia do Estrategista com pesquisa na web.`
                       : activeAgent === 12
-                      ? `Diga "Pode decidir" para o Decisor consolidar a estratégia com base na auditoria.`
+                      ? `Diga "Pode decidir. Analise a estratégia e o parecer do Auditor e gere a versão final."`
                       : agentDef.isSenior
                       ? `Diga "Revisar agora" para o Revisor Sênior analisar o output do agente anterior com pesquisa na web.`
                       : `Diga "Pode começar" para iniciar com base nos dados de ${selectedClient.name}.`}
