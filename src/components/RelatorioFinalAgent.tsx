@@ -156,7 +156,7 @@ export default function RelatorioFinalAgent({ client }: Props) {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
         body: JSON.stringify({
-          model: "gpt-4o",
+          model: "gpt-4o-mini",
           messages: [
             { role: "system", content: REPORT_SYSTEM_PROMPT },
             ...messages,

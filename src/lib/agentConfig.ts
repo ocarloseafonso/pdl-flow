@@ -951,7 +951,7 @@ export async function callRegularAgent(
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
-      model: "gpt-4o",
+      model: "gpt-4o-mini",
       messages: [
         { role: "system", content: systemPrompt },
         ...contextMessages,   // injected history — treated as real conversation
@@ -978,7 +978,7 @@ export async function callConversationalAgent(
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
-      model: "gpt-4o",
+      model: "gpt-4o-mini",
       messages: [
         { role: "system", content: systemPrompt },
         ...messages,
@@ -1024,7 +1024,12 @@ export async function callVisionAgent(
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({ model: "gpt-4o", messages: apiMessages, temperature: 0.7, max_tokens: 4096 }),
+    body: JSON.stringify({ 
+      model: "gpt-4o-mini",
+      messages: apiMessages,
+      temperature: 0.7,
+      max_tokens: 4000 
+    }),
   });
   if (!res.ok) {
     const e = await res.json();
@@ -1053,7 +1058,7 @@ export async function callSeniorAgent(
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
-        model: "gpt-4o",
+        model: "gpt-4o-mini",
         tools: [{ type: "web_search_preview" }],
         input: fullInput,
       }),
