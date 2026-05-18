@@ -4,7 +4,7 @@ import { Client } from "@/lib/types";
 import {
   AGENTS, PIPELINE, AllAgentState, AgentState, Message,
   makeInitialState, loadSession, saveSession, clearSession,
-  buildClientContext, getSystemPrompt, getVisionSystemPrompt, buildContextMessages,
+  buildClientContext, getSystemPrompt, getVisionSystemPrompt, buildContextMessages, getAgent1ConversationalPrompt,
   callRegularAgent, callSeniorAgent, callVisionAgent,
   PARENT_AGENT, detectMissingInfo, parseStrategySections, STRATEGY_SECTIONS,
 } from "@/lib/agentConfig";
@@ -105,7 +105,7 @@ export default function AgentesIA() {
 
   /* -- Sequential strategy generation for Agent 1 -- */
   async function generateStrategySections(
-    userMsg: Message,
+    messages: Message[],
     key: string,
     baseSystemPrompt: string,
     contextMessages: Message[],
@@ -134,7 +134,7 @@ export default function AgentesIA() {
         "\nNao gere outras secoes. Nao resuma. Maximo detalhamento para esta secao especifica. Comece diretamente pelo conteudo da secao, sem introducao.";
 
       try {
-        const sectionReply = await callRegularAgent([userMsg], contextMessages, sectionSystemPrompt, key);
+        const sectionReply = await callRegularAgent(messages, contextMessages, sectionSystemPrompt, key);
         newSectionOutputs.push(sectionReply);
         setSectionOutputs(prev => { const n = [...prev]; n[i] = sectionReply; return n; });
       } catch (err) {
@@ -290,7 +290,7 @@ export default function AgentesIA() {
       // Agent 1 first message: sequential section-by-section generation
       const isAgent1FirstRun = activeAgent === 1 && updatedMsgs.filter(m => m.role === "assistant").length === 0;
       if (isAgent1FirstRun) {
-        await generateStrategySections(userMsg, key, systemPrompt, contextMessages, s1, updatedMsgs);
+        await generateStrategySections([userMsg], key, systemPrompt, contextMessages, s1, updatedMsgs);
       } else {
         let reply: string;
         if (activeAgent === 8) {
@@ -298,7 +298,10 @@ export default function AgentesIA() {
         } else if (agentDef.isSenior) {
           reply = await callSeniorAgent(updatedMsgs, contextMessages, systemPrompt, key);
         } else {
-          reply = await callRegularAgent(updatedMsgs, contextMessages, systemPrompt, key);
+          const effectivePrompt = (activeAgent === 1)
+            ? getAgent1ConversationalPrompt(buildClientContext(selectedClient))
+            : systemPrompt;
+          reply = await callRegularAgent(updatedMsgs, contextMessages, effectivePrompt, key);
         }
         const s2: AllAgentState = {
           ...s1,
@@ -396,7 +399,31 @@ export default function AgentesIA() {
     } finally { setLoading(false); }
   }
 
-  /* ── Reopen agent — unlock without clearing anything ── */
+  /* -- Re-generate strategy with conversation context -- */
+  async function regenerateStrategy() {
+    if (!selectedClient || loading) return;
+    const key = localStorage.getItem("OPENAI_API_KEY");
+    if (!key) { toast.error("Configure sua chave OpenAI."); return; }
+    const safeState = agentState[1] ?? { status: "active" as const, output: "", messages: [] };
+    if (!safeState.messages.length) { toast.error("Nenhuma conversa para re-gerar."); return; }
+    const systemPrompt = getSystemPrompt(1, buildClientContext(selectedClient), agentState);
+    const contextMessages = buildContextMessages(agentState, 1);
+    setSectionOutputs([]);
+    setSectionsComplete(false);
+    setGeneratingSection(null);
+    setLoading(true);
+    toast.info("Re-gerando estratégia com as alterações acordadas...");
+    try {
+      await generateStrategySections(safeState.messages, key, systemPrompt, contextMessages, agentState, safeState.messages);
+      toast.success("Estratégia re-gerada com as alterações aplicadas!");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro na API");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+    /* ── Reopen agent — unlock without clearing anything ── */
   function reopenAgent(id: number) {
     const newState: AllAgentState = {
       ...agentState,
@@ -629,6 +656,11 @@ export default function AgentesIA() {
             {currentState?.messages.length > 0 && currentState?.status !== "done" && (
               <Button size="sm" variant="ghost" className="gap-1 text-xs h-7" onClick={() => resetAgent(activeAgent)}>
                 <RotateCcw className="h-3 w-3" /> Reiniciar
+              </Button>
+            )}
+            {activeAgent === 1 && currentState?.messages.length > 0 && currentState?.status !== "done" && (
+              <Button size="sm" variant="outline" className="gap-1 text-xs h-7 text-blue-600 border-blue-400/50 hover:bg-blue-500/10" onClick={regenerateStrategy} disabled={loading} title="Re-gerar as 9 seções aplicando as alterações discutidas">
+                <RefreshCw className="h-3 w-3" /> Re-gerar estratégia
               </Button>
             )}
             {currentState?.output && currentState?.status !== "done" && PARENT_AGENT[activeAgent] !== undefined && (
@@ -1019,7 +1051,7 @@ export default function AgentesIA() {
                     agentDef.isSenior && "border-amber-500/20"
                   )}>
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    {agentDef.isSenior ? "Pesquisando e analisando profundamente…" : "Processando…"}
+                    {agentDef.isSenior ? "Pesquisando e analisando profundamente…" : activeAgent === 1 && agentState[1]?.messages?.filter(m => m.role === "assistant").length > 0 ? "Analisando e respondendo..." : "Processando…"}
                   </Card>
                 </div>
               )}
