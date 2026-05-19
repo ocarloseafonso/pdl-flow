@@ -428,6 +428,43 @@ export default function AgentesIA() {
     if (!key) { toast.error("Configure sua chave OpenAI."); return; }
     const safeState = agentState[1] ?? { status: "active" as const, output: "", messages: [] };
     if (!safeState.messages.length) { toast.error("Nenhuma conversa para re-gerar."); return; }
+
+    // ── Build a CLEAN message set for re-generation ──────────────────────────
+    // Instead of passing the full conversational history (which contains
+    // compressed placeholder messages that confuse section generation),
+    // we extract the agreed changes summary and build a single fresh directive.
+
+    // 1. Find the last assistant message containing the agreed changes summary
+    const lastSummaryMsg = [...safeState.messages]
+      .reverse()
+      .find(m => m.role === "assistant" && m.content.includes("RESUMO DAS ALTERAÇÕES ACORDADAS"));
+
+    // 2. Also collect any user messages that describe the desired changes
+    //    (in case the summary is in user text, not assistant)
+    const lastUserSummaryMsg = [...safeState.messages]
+      .reverse()
+      .find(m => m.role === "user" && m.content.includes("RESUMO DAS ALTERAÇÕES ACORDADAS"));
+
+    const summaryBlock = lastSummaryMsg?.content ?? lastUserSummaryMsg?.content ?? null;
+
+    // 3. Extract changes text — take only the summary portion if present
+    const changesContext = summaryBlock
+      ? `\n\n== ALTERAÇÕES ACORDADAS NA REVISÃO (APLICAR OBRIGATORIAMENTE) ==\n${summaryBlock}`
+      : "\n\nRegenere a estratégia aplicando todas as alterações discutidas na conversa anterior. Mantenha toda a profundidade e detalhamento da versão original.";
+
+    // 4. Use the original first user message as briefing base (clean, no chat noise)
+    const firstUserMsg = safeState.messages.find(m => m.role === "user");
+    const baseContent = (firstUserMsg?.content?.length ?? 0) > 600
+      ? firstUserMsg!.content   // original full trigger with briefing context
+      : "Gere a estratégia completa para este cliente com base no briefing fornecido.";
+
+    const regenerateMsg: Message = {
+      role: "user",
+      content: `${baseContent}${changesContext}\n\nGere a estratégia COMPLETA com as 9 seções, aplicando todas as alterações acordadas acima.`,
+    };
+
+    const cleanMessages: Message[] = [regenerateMsg];
+
     const systemPrompt = getSystemPrompt(1, buildClientContext(selectedClient), agentState);
     const contextMessages = buildContextMessages(agentState, 1);
     setSectionOutputs([]);
@@ -436,7 +473,7 @@ export default function AgentesIA() {
     setLoading(true);
     toast.info("Re-gerando estratégia com as alterações acordadas...");
     try {
-      await generateStrategySections(safeState.messages, key, systemPrompt, contextMessages, agentState, safeState.messages);
+      await generateStrategySections(cleanMessages, key, systemPrompt, contextMessages, agentState, cleanMessages);
       toast.success("Estratégia re-gerada com as alterações aplicadas!");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro na API");
