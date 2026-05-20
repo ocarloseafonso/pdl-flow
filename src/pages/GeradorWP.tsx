@@ -72,32 +72,153 @@ function loadWPConfig(): WPConfig {
 }
 
 function parseEstrategia(notes: string | null): EstrategiaData {
-  if (!notes?.startsWith("__ESTRATEGIA__\n")) return {};
-  try { return JSON.parse(notes.replace("__ESTRATEGIA__\n", "")); } catch { return {}; }
+  if (!notes) return {};
+  if (notes.startsWith("__ESTRATEGIA__\n")) {
+    try { return JSON.parse(notes.replace("__ESTRATEGIA__\n", "")); } catch { return {}; }
+  }
+  if (notes.startsWith("__AGENT_SESSION__\n")) {
+    try {
+      const parsed = JSON.parse(notes.replace("__AGENT_SESSION__\n", ""));
+      // Decisor (12) has the approved strategy. If not done or empty, fall back to Estrategista (1)
+      const strategyOutput = parsed[12]?.output || parsed[1]?.output || "";
+      
+      const outputs: string[] = [];
+      if (strategyOutput) {
+        outputs.push(`=== ESTRATÉGIA GERAL E DIRETRIZES ===\n${strategyOutput}`);
+      }
+      
+      const agentsList = [
+        { id: 2, name: "Keywords e Clusters SEO" },
+        { id: 3, name: "Estratégia GMB / Presença Local" },
+        { id: 4, name: "Arquitetura e Hierarquia de Páginas" },
+        { id: 5, name: "Diretrizes de Copywriting" },
+        { id: 6, name: "Pauta Editorial do Blog" },
+        { id: 8, name: "Diretrizes de Design e Identidade Visual" },
+        { id: 7, name: "Engenharia de Prompt e Produção" }
+      ];
+      
+      agentsList.forEach(ag => {
+        const approvedVal = parsed[ag.id]?.output;
+        if (approvedVal) {
+          const statusStr = parsed[ag.id]?.status === "done" ? "APROVADO" : "EM PROGRESSO";
+          outputs.push(`=== ${ag.name.toUpperCase()} (${statusStr}) ===\n${approvedVal}`);
+        }
+      });
+      
+      return {
+        estrategia: strategyOutput,
+        execucao: outputs.join("\n\n"),
+        discussao: `Sessão da Esteira PDL carregada da nuvem. ${Object.keys(parsed).filter(k => parsed[Number(k)]?.status === "done").length} agente(s) concluído(s).`
+      };
+    } catch {
+      return {};
+    }
+  }
+  return {};
 }
 
+const KEY_MAP: Record<string, string[]> = {
+  company_name: ["Nome da Empresa", "company_name", "Empresa"],
+  segment: ["Segmento/Nicho", "segment", "Segmento", "Nicho", "Segment"],
+  city_state: ["Cidade - Estado", "city_state", "Cidade/Estado", "Cidade", "Estado"],
+  phone: ["phone", "Telefone", "Celular"],
+  whatsapp: ["whatsapp", "WhatsApp", "whatsapp_response_time"],
+  email: ["email", "E-mail", "Email"],
+  website: ["website", "Site atual", "Você tem site? Se sim, qual o endereço?"],
+  instagram: ["instagram", "socials", "other_socials", "Você usa redes sociais? Quais são os links?", "Instagram", "Redes sociais"],
+  main_service: ["main_service", "Serviço principal", "Qual é o seu principal produto ou serviço? (o que você mais vende ou quer vender mais)", "Qual é o seu principal produto ou serviço?"],
+  other_services: ["other_services", "Outros serviços", "Quais outros produtos ou serviços você oferece?"],
+  problem_solved: ["problem_solved", "Problema que resolve", "Qual problema você resolve para o cliente?"],
+  audience: ["audience", "Público-alvo", "Quem costuma comprar de você hoje?"],
+  acquisition: ["acquisition", "Como adquire clientes hoje?"],
+  differentiator: ["differentiator", "Diferenciais", "Diferencial", "O que faz um cliente escolher você e não outro?"],
+  praises: ["praises", "Elogios recorrentes", "O que seus clientes mais elogiam no seu negócio?", "O que os clientes elogiam"],
+  competitors: ["competitors", "Concorrentes", "Quem são seus principais concorrentes?"],
+  hours: ["hours", "Horário de funcionamento", "Qual é o seu horário de funcionamento? (dias e horários)"],
+  service_modes: ["service_modes", "Formas de atendimento", "Você atende no local, delivery, na casa do cliente ou online?"],
+  payment_methods: ["payment_methods", "Formas de pagamento", "Quais formas de pagamento você aceita?"],
+  scheduling: ["scheduling", "Agendamento", "Você trabalha com agendamento ou por ordem de chegada?"],
+  walkin: ["walkin", "Sem agendamento", "Você atende clientes sem agendamento?"],
+  daily_capacity: ["daily_capacity", "Capacidade diária", "Quantos atendimentos você consegue fazer por dia?"],
+  avg_duration: ["avg_duration", "Duração média", "Quanto tempo dura, em média, um atendimento?"],
+  bio: ["bio", "Bio/História", "Quem é você/sua empresa?"],
+  slogan: ["slogan", "Slogan"],
+  team: ["team", "Equipe", "Você trabalha sozinho ou tem equipe?"],
+  faq: ["faq", "FAQ", "Quais são as principais dúvidas que seus clientes têm antes de comprar?", "Dúvidas frequentes"],
+  restrictions: ["restrictions", "Restrições", "Existe algo que você não faz ou não atende?"],
+  areas: ["areas", "Áreas", "Você atende em quais bairros, regiões ou cidades?", "Você atende em quais bairros, regiões ou cidades"],
+  ambient: ["ambient", "Ambiente", "O ambiente é interno, externo ou ambos?"],
+  wifi: ["wifi", "Wi-Fi", "Wi-fi disponível para clientes?"],
+  parking: ["parking", "Estacionamento", "Seu local tem estacionamento?"],
+  accessibility: ["accessibility", "Acessibilidade", "Tem acessibilidade para pessoas com dificuldade de locomoção?"],
+  kid_friendly: ["kid_friendly", "Kid-friendly", "Local bom para ir com crianças?"],
+};
+
 function buildClientContext(client: ClientRow, estrategia: EstrategiaData): string {
-  const b: BriefingData = client.briefing_data ?? {};
+  const b = (client.briefing_data ?? {}) as Record<string, any>;
+  const f = (key: string) => {
+    const possibleKeys = KEY_MAP[key] || [key];
+    for (const k of possibleKeys) {
+      if (b[k] !== undefined && b[k] !== null && String(b[k]).trim() !== "") {
+        return String(b[k]);
+      }
+    }
+    return "";
+  };
+
   const lines: string[] = [
+    `=== DADOS IDENTIFICADORES DO CLIENTE ===`,
     `CLIENTE: ${client.name}`,
-    `EMPRESA: ${client.company_name || "—"}`,
-    `SEGMENTO: ${client.segment || b.segment || "—"}`,
-    `SITE: ${client.site_url || b.website || "—"}`,
+    `EMPRESA: ${client.company_name || f("company_name") || "—"}`,
+    `SEGMENTO: ${client.segment || f("segment") || "—"}`,
+    `SITE: ${client.site_url || f("website") || "—"}`,
+    ``,
+    `=== BRIEFING E DETALHES DE ATENDIMENTO ===`,
   ];
+
   const briefingFields: [string, string][] = [
-    ["Serviço principal", b.main_service || ""],
-    ["Outros serviços", b.other_services || ""],
-    ["Público-alvo", b.audience || ""],
-    ["Diferencial", b.differentiator || ""],
-    ["Cidade/Estado", b.city_state || ""],
-    ["Problema que resolve", b.problem_solved || ""],
-    ["Dúvidas frequentes", b.faq || ""],
-    ["O que os clientes elogiam", b.praises || ""],
-    ["Slogan", b.slogan || ""],
+    ["Nome do Responsável", f("responsible_name")],
+    ["Serviço principal", f("main_service")],
+    ["Outros serviços", f("other_services")],
+    ["Público-alvo", f("audience")],
+    ["Diferencial", f("differentiator")],
+    ["Cidade/Estado", f("city_state")],
+    ["Regiões de atendimento", f("areas")],
+    ["Formas de atendimento (Online/Presencial)", f("service_modes")],
+    ["Problema que resolve", f("problem_solved")],
+    ["Dúvidas frequentes", f("faq")],
+    ["O que os clientes elogiam", f("praises")],
+    ["Slogan", f("slogan")],
+    ["Bio/História", f("bio")],
+    ["Equipe", f("team")],
+    ["Horário de funcionamento", f("hours")],
+    ["Formas de pagamento", f("payment_methods")],
+    ["Horários/Agendamento", f("scheduling")],
+    ["Atendimento sem agendamento", f("walkin")],
+    ["Estacionamento", f("parking")],
+    ["Wi-Fi para clientes", f("wifi")],
+    ["Acessibilidade", f("accessibility")],
+    ["Restrições", f("restrictions")]
   ];
+
   briefingFields.forEach(([label, val]) => { if (val) lines.push(`${label}: ${val}`); });
-  if (estrategia.estrategia) lines.push("\n── ESTRATÉGIA PDL ──\n" + estrategia.estrategia.slice(0, 1500));
-  if (estrategia.discussao) lines.push("\n── AJUSTES/DECISÕES ──\n" + estrategia.discussao.slice(0, 800));
+
+  lines.push(
+    ``,
+    `=== JSON COMPLETO DO BRIEFING (DADOS BRUTOS) ===`,
+    JSON.stringify(b, null, 2),
+    `==============================================`
+  );
+  
+  if (estrategia.estrategia) {
+    lines.push("\n── ESTRATÉGIA PDL (CONTEÚDO COMPLETO) ──\n" + estrategia.estrategia);
+  }
+  if (estrategia.execucao) {
+    lines.push("\n── DETALHES DE EXECUÇÃO E DADOS DOS AGENTES ──\n" + estrategia.execucao);
+  }
+  if (estrategia.discussao) {
+    lines.push("\n── AJUSTES/DECISÕES ──\n" + estrategia.discussao);
+  }
   return lines.join("\n");
 }
 
@@ -296,7 +417,7 @@ export default function GeradorWP() {
       }
       if (est.execucao) {
         contextLines.push("── MATERIAL DE EXECUÇÃO ──");
-        contextLines.push(est.execucao.slice(0, 3000));
+        contextLines.push(est.execucao);
         contextLines.push("");
       }
 

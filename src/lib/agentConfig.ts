@@ -228,10 +228,54 @@ export function makeInitialState(): AllAgentState {
 /* ═══════════════════════════════════════════════════
    CLIENT CONTEXT BUILDER
 ═══════════════════════════════════════════════════ */
+const KEY_MAP: Record<string, string[]> = {
+  company_name: ["Nome da Empresa", "company_name", "Empresa"],
+  segment: ["Segmento/Nicho", "segment", "Segmento", "Nicho", "Segment"],
+  city_state: ["Cidade - Estado", "city_state", "Cidade/Estado", "Cidade", "Estado"],
+  phone: ["phone", "Telefone", "Celular"],
+  whatsapp: ["whatsapp", "WhatsApp", "whatsapp_response_time"],
+  email: ["email", "E-mail", "Email"],
+  website: ["website", "Site atual", "Você tem site? Se sim, qual o endereço?"],
+  instagram: ["instagram", "socials", "other_socials", "Você usa redes sociais? Quais são os links?", "Instagram", "Redes sociais"],
+  main_service: ["main_service", "Serviço principal", "Qual é o seu principal produto ou serviço? (o que você mais vende ou quer vender mais)", "Qual é o seu principal produto ou serviço?"],
+  other_services: ["other_services", "Outros serviços", "Quais outros produtos ou serviços você oferece?"],
+  problem_solved: ["problem_solved", "Problema que resolve", "Qual problema você resolve para o cliente?"],
+  audience: ["audience", "Público-alvo", "Quem costuma comprar de você hoje?"],
+  acquisition: ["acquisition", "Como adquire clientes hoje?"],
+  differentiator: ["differentiator", "Diferenciais", "Diferencial", "O que faz um cliente escolher você e não outro?"],
+  praises: ["praises", "Elogios recorrentes", "O que seus clientes mais elogiam no seu negócio?", "O que os clientes elogiam"],
+  competitors: ["competitors", "Concorrentes", "Quem são seus principais concorrentes?"],
+  hours: ["hours", "Horário de funcionamento", "Qual é o seu horário de funcionamento? (dias e horários)"],
+  service_modes: ["service_modes", "Formas de atendimento", "Você atende no local, delivery, na casa do cliente ou online?"],
+  payment_methods: ["payment_methods", "Formas de pagamento", "Quais formas de pagamento você aceita?"],
+  scheduling: ["scheduling", "Agendamento", "Você trabalha com agendamento ou por ordem de chegada?"],
+  walkin: ["walkin", "Sem agendamento", "Você atende clientes sem agendamento?"],
+  daily_capacity: ["daily_capacity", "Capacidade diária", "Quantos atendimentos você consegue fazer por dia?"],
+  avg_duration: ["avg_duration", "Duração média", "Quanto tempo dura, em média, um atendimento?"],
+  bio: ["bio", "Bio/História", "Quem é você/sua empresa?"],
+  slogan: ["slogan", "Slogan"],
+  team: ["team", "Equipe", "Você trabalha sozinho ou tem equipe?"],
+  faq: ["faq", "FAQ", "Quais são as principais dúvidas que seus clientes têm antes de comprar?", "Dúvidas frequentes"],
+  restrictions: ["restrictions", "Restrições", "Existe algo que você não faz ou não atende?"],
+  areas: ["areas", "Áreas", "Você atende em quais bairros, regiões ou cidades?", "Você atende em quais bairros, regiões ou cidades"],
+  ambient: ["ambient", "Ambiente", "O ambiente é interno, externo ou ambos?"],
+  wifi: ["wifi", "Wi-Fi", "Wi-fi disponível para clientes?"],
+  parking: ["parking", "Estacionamento", "Seu local tem estacionamento?"],
+  accessibility: ["accessibility", "Acessibilidade", "Tem acessibilidade para pessoas com dificuldade de locomoção?"],
+  kid_friendly: ["kid_friendly", "Kid-friendly", "Local bom para ir com crianças?"],
+};
+
 export function buildClientContext(client: Client): string {
   const b = (client.briefing_data ?? {}) as Record<string, unknown>;
-  const f = (key: string, ...aliases: string[]) =>
-    String(b[key] ?? aliases.reduce((v, k) => v ?? b[k], undefined as unknown) ?? "não informado");
+  const f = (key: string, ...aliases: string[]) => {
+    const possibleKeys = KEY_MAP[key] || [key];
+    for (const k of possibleKeys) {
+      if (b[k] !== undefined && b[k] !== null && String(b[k]).trim() !== "") {
+        return String(b[k]);
+      }
+    }
+    return String(aliases.reduce((v, k) => v ?? b[k], undefined as unknown) ?? "não informado");
+  };
 
   const lines = [
     `=== BRIEFING COMPLETO DO CLIENTE ===`,

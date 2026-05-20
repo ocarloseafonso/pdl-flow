@@ -69,13 +69,36 @@ export default function AgentesIA() {
   /* ── load saved session when client changes ── */
   useEffect(() => {
     if (!selectedClientId) return;
-    const saved = loadSession(selectedClientId);
+    
+    const client = clients.find(c => c.id === selectedClientId);
+    let saved = loadSession(selectedClientId);
+    
+    // Fallback to database notes if no localStorage session
+    if (!saved && client?.notes?.startsWith("__AGENT_SESSION__\n")) {
+      try {
+        const rawJson = client.notes.substring("__AGENT_SESSION__\n".length);
+        const parsed = JSON.parse(rawJson) as AllAgentState;
+        
+        const fresh = makeInitialState();
+        const merged: AllAgentState = { ...fresh };
+        PIPELINE.forEach((id) => {
+          if (parsed[id] !== undefined) {
+            merged[id] = parsed[id];
+          }
+        });
+        saved = merged;
+        saveSession(selectedClientId, merged);
+      } catch (err) {
+        console.error("Erro ao analisar sessão em clients.notes:", err);
+      }
+    }
+
     if (saved) {
       setAgentState(saved);
       // find the last active/unlocked agent
       const lastActive = PIPELINE.find(id => saved[id]?.status === "active") ?? PIPELINE[0];
       setActiveAgent(lastActive);
-      toast.info("Sessão anterior carregada. Continue de onde parou.");
+      toast.info("Sessão anterior carregada da nuvem/local. Continue de onde parou.");
     } else {
       const fresh = makeInitialState();
       setAgentState(fresh);
@@ -99,8 +122,22 @@ export default function AgentesIA() {
   const currentState = agentState[activeAgent];
 
   /* ── persist whenever state changes ── */
-  const persist = useCallback((newState: AllAgentState) => {
-    if (selectedClientId) saveSession(selectedClientId, newState);
+  const persist = useCallback(async (newState: AllAgentState) => {
+    if (!selectedClientId) return;
+    saveSession(selectedClientId, newState);
+    const payload = "__AGENT_SESSION__\n" + JSON.stringify(newState);
+    
+    // Update local state to ensure it is immediately available
+    setClients(prev => prev.map(c => c.id === selectedClientId ? { ...c, notes: payload } : c));
+    
+    try {
+      await supabase
+        .from("clients")
+        .update({ notes: payload })
+        .eq("id", selectedClientId);
+    } catch (err) {
+      console.error("Erro ao sincronizar sessão na nuvem:", err);
+    }
   }, [selectedClientId]);
 
   /* -- Sequential strategy generation for Agent 1 -- */
@@ -168,14 +205,37 @@ export default function AgentesIA() {
     else { setMissingInfoLines([]); setMissingInfoState("none"); }
   }
 
-    async function refreshClient() {
+  async function refreshClient() {
     if (!selectedClientId) return;
     setRefreshing(true);
     try {
       const { data } = await supabase.from("clients").select("*").eq("id", selectedClientId).single();
       if (data) {
         setClients(prev => prev.map(cl => cl.id === selectedClientId ? data as unknown as Client : cl));
-        toast.success("Briefing atualizado! Envie nova mensagem para o agente usar os dados novos.");
+        
+        // Sync agent session if present in notes
+        if (data.notes?.startsWith("__AGENT_SESSION__\n")) {
+          try {
+            const rawJson = data.notes.substring("__AGENT_SESSION__\n".length);
+            const parsed = JSON.parse(rawJson) as AllAgentState;
+            const fresh = makeInitialState();
+            const merged: AllAgentState = { ...fresh };
+            PIPELINE.forEach((id) => {
+              if (parsed[id] !== undefined) {
+                merged[id] = parsed[id];
+              }
+            });
+            setAgentState(merged);
+            saveSession(selectedClientId, merged);
+            // find the last active/unlocked agent
+            const lastActive = PIPELINE.find(id => merged[id]?.status === "active") ?? PIPELINE[0];
+            setActiveAgent(lastActive);
+          } catch (err) {
+            console.error("Erro ao analisar notes após refresh:", err);
+          }
+        }
+        
+        toast.success("Briefing e sessão atualizados! Envie nova mensagem para o agente usar os dados novos.");
       }
     } catch { toast.error("Erro ao atualizar."); }
     finally { setRefreshing(false); }
@@ -509,13 +569,27 @@ export default function AgentesIA() {
   }
 
   /* ── Clear entire session ── */
-  function clearAll() {
+  async function clearAll() {
     if (!selectedClientId) return;
     clearSession(selectedClientId);
     const fresh = makeInitialState();
     setAgentState(fresh);
     setActiveAgent(PIPELINE[0]);
-    toast.success("Sessão resetada.");
+    
+    // Clear in local state
+    setClients(prev => prev.map(c => c.id === selectedClientId ? { ...c, notes: null } : c));
+    
+    // Clear in Supabase
+    try {
+      await supabase
+        .from("clients")
+        .update({ notes: null })
+        .eq("id", selectedClientId);
+      toast.success("Sessão resetada localmente e na nuvem.");
+    } catch (err) {
+      console.error("Erro ao resetar sessão na nuvem:", err);
+      toast.success("Sessão resetada localmente.");
+    }
   }
 
   async function copyOutput() {
