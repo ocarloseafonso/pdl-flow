@@ -71,6 +71,51 @@ function loadWPConfig(): WPConfig {
   return { wpUrl: "", wpUser: "", wpPass: "", wpStatus: "draft", genImage: false, aiSuggestCats: true, defaultCats: [], rulesArtigos: DEFAULT_RULES.artigos, rulesServicos: DEFAULT_RULES.servicos, rulesSobre: DEFAULT_RULES.sobre };
 }
 
+function loadWPConfigForClient(c: ClientRow): WPConfig {
+  const b = c.briefing_data ?? {};
+  
+  // 1. Try to load from cloud briefing_data.wp_config
+  if (b.wp_config && typeof b.wp_config === "object") {
+    return {
+      ...{ genImage: false, aiSuggestCats: true, defaultCats: [], ...DEFAULT_RULES },
+      ...b.wp_config
+    };
+  }
+  
+  // 2. Try to load from client-specific localStorage
+  try {
+    const raw = localStorage.getItem(`pdl_wpforge_config_${c.id}`);
+    if (raw) {
+      return {
+        ...{ genImage: false, aiSuggestCats: true, defaultCats: [], ...DEFAULT_RULES },
+        ...JSON.parse(raw)
+      };
+    }
+  } catch { /* */ }
+  
+  // 3. Fallback to global localStorage template or default rules
+  let globalCfg: Partial<WPConfig> = {};
+  try {
+    const rawGlobal = localStorage.getItem(WP_CONFIG_KEY);
+    if (rawGlobal) {
+      globalCfg = JSON.parse(rawGlobal);
+    }
+  } catch { /* */ }
+  
+  return {
+    wpUrl: c.site_url ? c.site_url.replace(/\/$/, "") : (globalCfg.wpUrl || ""),
+    wpUser: globalCfg.wpUser || "",
+    wpPass: globalCfg.wpPass || "",
+    wpStatus: globalCfg.wpStatus || "draft",
+    genImage: globalCfg.genImage ?? false,
+    aiSuggestCats: globalCfg.aiSuggestCats ?? true,
+    defaultCats: globalCfg.defaultCats || [],
+    rulesArtigos: globalCfg.rulesArtigos || DEFAULT_RULES.artigos,
+    rulesServicos: globalCfg.rulesServicos || DEFAULT_RULES.servicos,
+    rulesSobre: globalCfg.rulesSobre || DEFAULT_RULES.sobre,
+  };
+}
+
 function parseEstrategia(notes: string | null): EstrategiaData {
   if (!notes) return {};
   if (notes.startsWith("__ESTRATEGIA__\n")) {
@@ -295,7 +340,7 @@ export default function GeradorWP() {
       .then(({ data }) => { if (data) setClients(data as ClientRow[]); });
   }, []);
 
-  // When client changes: load blog_articles + parse estrategia
+  // When client changes: load blog_articles + parse estrategia + load client WP config
   async function selectClient(c: ClientRow) {
     setLoadingClient(true);
     setSelectedClient(c);
@@ -304,6 +349,11 @@ export default function GeradorWP() {
     // Parse strategy from notes
     const est = parseEstrategia(c.notes);
     setEstrategia(est);
+
+    // Load individual client WP configuration and auto-fetch categories
+    const clientWPConfig = loadWPConfigForClient(c);
+    setWPConfig(clientWPConfig);
+    fetchCategories(clientWPConfig);
 
     // Load blog_articles from Supabase
     const { data: articles } = await supabase
@@ -322,7 +372,7 @@ export default function GeradorWP() {
         format: a.format,
         status: "aguardando",
         content: a.content || "",
-        categories: wpConfig.defaultCats,
+        categories: clientWPConfig.defaultCats,
       }));
       setQueues(prev => ({ ...prev, artigos: items }));
     }
@@ -335,18 +385,12 @@ export default function GeradorWP() {
       b.other_services.split(/[,;\n]/).map(s => s.trim()).filter(Boolean).forEach(s => servicos.push(s));
     }
     const servicoItems: QueueItem[] = servicos.slice(0, 8).map(title => ({
-      id: uid(), title, status: "aguardando", content: "", categories: wpConfig.defaultCats,
+      id: uid(), title, status: "aguardando", content: "", categories: clientWPConfig.defaultCats,
     }));
 
     const sobreItems: QueueItem[] = [
-      { id: uid(), title: `Sobre ${c.company_name || c.name}`, status: "aguardando", content: "", categories: wpConfig.defaultCats },
+      { id: uid(), title: `Sobre ${c.company_name || c.name}`, status: "aguardando", content: "", categories: clientWPConfig.defaultCats },
     ];
-
-    if (c.site_url) {
-      const cfg = { ...wpConfig, wpUrl: c.site_url.replace(/\/$/, "") };
-      setWPConfig(cfg);
-      localStorage.setItem(WP_CONFIG_KEY, JSON.stringify(cfg));
-    }
 
     setQueues(prev => ({ ...prev, servicos: servicoItems, sobre: sobreItems }));
     setLoadingClient(false);
@@ -640,26 +684,57 @@ Retorne APENAS o HTML do conteúdo, sem explicações ou markdown.`;
     setQueues(prev => ({ ...prev, [section]: prev[section].filter(i => i.id !== id) }));
   }
 
-  // WP Config
-  function saveWPConfig(cfg: WPConfig) {
+  // WP Config — salva individualmente por cliente
+  async function saveWPConfig(cfg: WPConfig) {
     setWPConfig(cfg);
-    localStorage.setItem(WP_CONFIG_KEY, JSON.stringify(cfg));
-    toast.success("Configurações WordPress salvas!");
+
+    if (selectedClient) {
+      // 1. Salvar no localStorage com chave específica do cliente
+      localStorage.setItem(`pdl_wpforge_config_${selectedClient.id}`, JSON.stringify(cfg));
+
+      // 2. Sincronizar no Supabase dentro de briefing_data.wp_config
+      const existingBriefing = selectedClient.briefing_data ?? {};
+      const updatedBriefing = { ...existingBriefing, wp_config: cfg };
+      const { error } = await supabase
+        .from("clients")
+        .update({ briefing_data: updatedBriefing })
+        .eq("id", selectedClient.id);
+
+      if (error) {
+        toast.error("Erro ao salvar no servidor: " + error.message);
+      } else {
+        // Atualiza o estado local do cliente e da lista de clientes
+        const updatedClient = { ...selectedClient, briefing_data: updatedBriefing };
+        setSelectedClient(updatedClient);
+        setClients(prev => prev.map(cl => cl.id === selectedClient.id ? updatedClient : cl));
+        toast.success(`Configurações de "${selectedClient.company_name || selectedClient.name}" salvas!`);
+      }
+    } else {
+      // Sem cliente selecionado: salva como configuração global de fallback
+      localStorage.setItem(WP_CONFIG_KEY, JSON.stringify(cfg));
+      toast.success("Configurações WordPress salvas!");
+    }
   }
 
-  async function fetchCategories() {
-    if (!wpConfig.wpUrl || !wpConfig.wpUser || !wpConfig.wpPass) {
-      toast.error("Configure URL e credenciais WordPress!"); return;
+  async function fetchCategories(cfg?: WPConfig) {
+    const active = cfg ?? wpConfig;
+    if (!active.wpUrl || !active.wpUser || !active.wpPass) {
+      // Se chamado automaticamente na seleção do cliente, não exibe erro
+      if (!cfg) toast.error("Configure URL e credenciais WordPress!");
+      return;
     }
     setFetchingCats(true);
     try {
-      const creds = btoa(`${wpConfig.wpUser}:${wpConfig.wpPass}`);
-      const res = await fetch(`${wpConfig.wpUrl}/wp-json/wp/v2/categories?per_page=100`, { headers: { Authorization: `Basic ${creds}` } });
+      const creds = btoa(`${active.wpUser}:${active.wpPass}`);
+      const res = await fetch(`${active.wpUrl}/wp-json/wp/v2/categories?per_page=100`, { headers: { Authorization: `Basic ${creds}` } });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const cats: any[] = await res.json();
       setWPCategories(cats.map(c => ({ id: c.id, name: c.name, count: c.count })));
-      toast.success(`${cats.length} categorias carregadas!`);
-    } catch (e: any) { toast.error("Erro: " + e.message); }
+      if (!cfg) toast.success(`${cats.length} categorias carregadas!`);
+    } catch (e: any) {
+      // Só exibe erro se foi chamado manualmente pelo usuário
+      if (!cfg) toast.error("Erro: " + e.message);
+    }
     finally { setFetchingCats(false); }
   }
 
@@ -1077,7 +1152,17 @@ Retorne APENAS o HTML do conteúdo, sem explicações ou markdown.`;
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-2">
               <Settings className="h-4 w-4" /> Configurações WordPress
+              {selectedClient && (
+                <span className="ml-auto text-xs font-normal text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                  👤 {selectedClient.company_name || selectedClient.name}
+                </span>
+              )}
             </CardTitle>
+            {selectedClient && (
+              <p className="text-xs text-muted-foreground mt-0.5">
+                As configurações abaixo são exclusivas deste cliente e serão salvas na nuvem.
+              </p>
+            )}
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid sm:grid-cols-2 gap-4">
@@ -1128,9 +1213,12 @@ Retorne APENAS o HTML do conteúdo, sem explicações ou markdown.`;
 
             <div className="flex gap-2 flex-wrap">
               <Button onClick={() => saveWPConfig(wpConfig)} className="gap-2">
-                <CheckCircle2 className="h-4 w-4" /> Salvar configurações
+                <CheckCircle2 className="h-4 w-4" />
+                {selectedClient
+                  ? `Salvar para ${selectedClient.company_name || selectedClient.name}`
+                  : "Salvar configurações"}
               </Button>
-              <Button variant="outline" onClick={fetchCategories} disabled={fetchingCats} className="gap-2">
+              <Button variant="outline" onClick={() => fetchCategories()} disabled={fetchingCats} className="gap-2">
                 <RefreshCw className={`h-4 w-4 ${fetchingCats ? "animate-spin" : ""}`} />
                 {fetchingCats ? "Buscando..." : "Buscar categorias WP"}
               </Button>
