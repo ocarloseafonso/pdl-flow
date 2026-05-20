@@ -945,27 +945,41 @@ export async function callRegularAgent(
   messages: Message[],
   contextMessages: Message[],
   systemPrompt: string,
-  apiKey: string
+  apiKey: string,
+  maxTokens = 3000
 ): Promise<string> {
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: systemPrompt },
-        ...contextMessages,   // injected history — treated as real conversation
-        ...messages,          // actual user conversation
-      ],
-      temperature: 0.7,
-    }),
-  });
-  if (!res.ok) {
-    const e = await res.json();
-    throw new Error(e.error?.message ?? "Erro na API OpenAI");
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 120_000); // 2-minute hard timeout
+  try {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [
+          { role: "system", content: systemPrompt },
+          ...contextMessages,   // injected history — treated as real conversation
+          ...messages,          // actual user conversation
+        ],
+        temperature: 0.7,
+        max_tokens: maxTokens,
+      }),
+    });
+    if (!res.ok) {
+      const e = await res.json();
+      throw new Error(e.error?.message ?? "Erro na API OpenAI");
+    }
+    const data = await res.json();
+    return data.choices[0].message.content as string;
+  } catch (err) {
+    if ((err as Error).name === "AbortError") {
+      throw new Error("Tempo limite excedido (120s). A seção é muito longa — tente novamente.");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
   }
-  const data = await res.json();
-  return data.choices[0].message.content as string;
 }
 
 /** Conversational agent — short replies, capped at 1200 tokens */

@@ -2,7 +2,7 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { LayoutDashboard, KanbanSquare, Calendar, Settings2, LogOut, FileText, BookOpen, BrainCircuit } from "lucide-react";
+import { LayoutDashboard, KanbanSquare, Calendar, Settings2, LogOut, FileText, BookOpen, BrainCircuit, Wand2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useEffect } from "react";
 import { TodayReminderBanner } from "./TodayReminderBanner";
@@ -13,6 +13,7 @@ const items = [
   { to: "/agenda", label: "Agenda", icon: Calendar },
   { to: "/guia", label: "Guia de Execução", icon: BookOpen },
   { to: "/agentes", label: "Agentes IA", icon: BrainCircuit },
+  { to: "/gerador-wp", label: "Gerador WP", icon: Wand2 },
   { to: "/prompts", label: "Prompts & Templates", icon: FileText },
   { to: "/config", label: "Configurações", icon: Settings2 },
 ];

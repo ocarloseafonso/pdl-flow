@@ -34,11 +34,17 @@ export default function Config() {
 
   // OpenAI Settings
   const [openAiKey, setOpenAiKey] = useState(() => localStorage.getItem("OPENAI_API_KEY") || "");
+  const [geminiKey, setGeminiKey] = useState(() => localStorage.getItem("GEMINI_API_KEY") || "");
   const [firecrawlKey, setFirecrawlKey] = useState(() => localStorage.getItem("FIRECRAWL_API_KEY") || "");
 
   function saveOpenAiKey() {
     localStorage.setItem("OPENAI_API_KEY", openAiKey);
     toast.success("Chave da OpenAI salva com sucesso no navegador!");
+  }
+
+  function saveGeminiKey() {
+    localStorage.setItem("GEMINI_API_KEY", geminiKey);
+    toast.success("Chave do Gemini salva!");
   }
 
   function saveFirecrawlKey() {
@@ -144,6 +150,35 @@ export default function Config() {
           </div>
           {openAiKey && (
             <p className="text-xs text-green-600 dark:text-green-400">✅ Chave configurada. Os Agentes IA estão prontos para uso.</p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Gemini Key */}
+      <Card className="border-blue-500/30 bg-blue-500/5">
+        <CardHeader><CardTitle className="text-base flex items-center gap-2">
+          <KeyRound className="h-4 w-4 text-blue-500" />
+          Chave Gemini — alternativa ao OpenAI para Agentes e Gerador WP
+        </CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Cole aqui sua chave do Google Gemini (<strong>AIza...</strong>). Usada como alternativa ao OpenAI nos Agentes e no Gerador WP.
+          </p>
+          <div className="flex gap-2">
+            <Input
+              id="gemini-key-input"
+              type="password"
+              placeholder="AIzaSy..."
+              value={geminiKey}
+              onChange={(e) => setGeminiKey(e.target.value)}
+              className="max-w-md"
+            />
+            <Button onClick={saveGeminiKey} variant="default" className="gap-2 bg-blue-600 hover:bg-blue-700">
+              <KeyRound className="h-4 w-4" /> Salvar Chave
+            </Button>
+          </div>
+          {geminiKey && (
+            <p className="text-xs text-green-600 dark:text-green-400">✅ Chave Gemini configurada.</p>
           )}
         </CardContent>
       </Card>

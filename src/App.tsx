@@ -15,6 +15,7 @@ import Config from "./pages/Config";
 import GuiaExecucao from "./pages/GuiaExecucao";
 import Briefing from "./pages/Briefing";
 import AgentesIA from "./pages/AgentesIA";
+import GeradorWP from "./pages/GeradorWP";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -23,7 +24,7 @@ const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <Toaster />
-      <Sonner />
+      <Sonner position="bottom-center" />
       <BrowserRouter>
         <AuthProvider>
           <Routes>
@@ -38,6 +39,7 @@ const App = () => (
               <Route path="/guia" element={<GuiaExecucao />} />
               <Route path="/agentes" element={<AgentesIA />} />
               <Route path="/config" element={<Config />} />
+              <Route path="/gerador-wp" element={<GeradorWP />} />
             </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>
