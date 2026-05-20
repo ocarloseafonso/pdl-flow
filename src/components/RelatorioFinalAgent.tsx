@@ -161,7 +161,6 @@ export default function RelatorioFinalAgent({ client }: Props) {
             { role: "system", content: REPORT_SYSTEM_PROMPT },
             ...messages,
           ],
-          temperature: 0.65,
           max_completion_tokens: 4000,
         }),
       });

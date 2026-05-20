@@ -159,7 +159,6 @@ async function callOpenAI(messages: { role: string; content: string }[]): Promis
     body: JSON.stringify({
       model: "gpt-5-mini",
       messages,
-      temperature: 0.7,
       max_completion_tokens: 2500,
     }),
   });

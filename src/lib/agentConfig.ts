@@ -962,7 +962,6 @@ export async function callRegularAgent(
           ...contextMessages,   // injected history — treated as real conversation
           ...messages,          // actual user conversation
         ],
-        temperature: 0.7,
         max_completion_tokens: maxTokens,
       }),
     });
@@ -997,7 +996,6 @@ export async function callConversationalAgent(
         { role: "system", content: systemPrompt },
         ...messages,
       ],
-      temperature: 0.7,
       max_completion_tokens: 800,
     }),
   });
@@ -1041,7 +1039,6 @@ export async function callVisionAgent(
     body: JSON.stringify({ 
       model: "gpt-5-mini",
       messages: apiMessages,
-      temperature: 0.7,
       max_completion_tokens: 4000 
     }),
   });
