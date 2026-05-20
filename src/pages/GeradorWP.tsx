@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -324,6 +324,10 @@ export default function GeradorWP() {
   const [analyzeLog, setAnalyzeLog] = useState<string[]>([]);
 
   const [queues, setQueues] = useState<Record<Section, QueueItem[]>>({ artigos: [], servicos: [], sobre: [], extras: [] });
+  // Refs for persistence
+  const selectedClientRef = useRef<ClientRow | null>(null);
+  const isSavingEnabled = useRef(false);
+  const saveDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [activeSection, setActiveSection] = useState<Section>("artigos");
   const [generating, setGenerating] = useState<string | null>(null); // itemId being generated
 
@@ -343,10 +347,36 @@ export default function GeradorWP() {
       .then(({ data }) => { if (data) setClients(data as ClientRow[]); });
   }, []);
 
+  // ── Auto-save queues to Supabase (debounced 2s) ───────────────────────────
+  useEffect(() => {
+    if (!isSavingEnabled.current || !selectedClientRef.current) return;
+    // Don't save if all queues are empty (just reset/loading state)
+    const total = Object.values(queues).reduce((a, q) => a + q.length, 0);
+    if (total === 0) return;
+    // Don't save while any item is still generating (transient state)
+    const anyGenerating = Object.values(queues).some(q => q.some(i => i.status === "gerando"));
+    if (anyGenerating) return;
+    if (saveDebounceRef.current) clearTimeout(saveDebounceRef.current);
+    saveDebounceRef.current = setTimeout(async () => {
+      const client = selectedClientRef.current;
+      if (!client) return;
+      try {
+        const existing = client.briefing_data ?? {};
+        const updated = { ...existing, wp_queues: queues };
+        await supabase.from("clients").update({ briefing_data: updated }).eq("id", client.id);
+        // Keep ref in sync so next save uses latest briefing_data
+        selectedClientRef.current = { ...client, briefing_data: updated };
+      } catch { /* silent — don't disrupt the user */ }
+    }, 2000);
+  }, [queues]);
+
   // When client changes: load blog_articles + parse estrategia + load client WP config
+  // Also restores saved queues from briefing_data.wp_queues (persisted progress)
   async function selectClient(c: ClientRow) {
     setLoadingClient(true);
+    isSavingEnabled.current = false; // Disable auto-save while loading
     setSelectedClient(c);
+    selectedClientRef.current = c;
     setQueues({ artigos: [], servicos: [], sobre: [], extras: [] });
 
     // Parse strategy from notes
@@ -358,46 +388,83 @@ export default function GeradorWP() {
     setWPConfig(clientWPConfig);
     fetchCategories(clientWPConfig);
 
-    // Load blog_articles from Supabase
+    // Load blog_articles from Supabase (source of truth for article list)
     const { data: articles } = await supabase
       .from("blog_articles")
       .select("*")
       .eq("client_id", c.id)
       .order("position");
 
+    // Check for previously saved queue state in briefing_data.wp_queues
+    const bd: any = c.briefing_data ?? {};
+    const savedQueues: Record<Section, QueueItem[]> | null =
+      bd.wp_queues && typeof bd.wp_queues === "object" ? bd.wp_queues as Record<Section, QueueItem[]> : null;
+
+    // Helper: sanitize status (convert "gerando" → "aguardando" on restore)
+    const cleanStatus = (s: QueueItem["status"]): QueueItem["status"] =>
+      s === "gerando" ? "aguardando" : s;
+
+    // ── Build artigos ─────────────────────────────────────────────────────────
+    // blog_articles table = canonical list; wp_queues holds generated content
+    let artigoItems: QueueItem[] = [];
     if (articles && articles.length > 0) {
-      const items: QueueItem[] = (articles as BlogArticle[]).map(a => ({
-        id: uid(),
-        articleId: a.id,
-        title: a.title,
-        keyword: a.keyword,
-        intent: a.intent,
-        format: a.format,
-        status: "aguardando",
-        content: a.content || "",
-        categories: clientWPConfig.defaultCats,
-      }));
-      setQueues(prev => ({ ...prev, artigos: items }));
+      artigoItems = (articles as BlogArticle[]).map(a => {
+        const saved = savedQueues?.artigos?.find((q: QueueItem) => q.articleId === a.id);
+        const hasContent = !!(saved?.content || a.content);
+        return {
+          id: saved?.id || uid(),
+          articleId: a.id,
+          title: a.title,
+          keyword: a.keyword,
+          intent: a.intent,
+          format: a.format,
+          status: hasContent ? "pronto" as const : "aguardando" as const,
+          content: saved?.content || a.content || "",
+          categories: saved?.categories || clientWPConfig.defaultCats,
+          wpId: saved?.wpId,
+          wpLink: saved?.wpLink || a.published_url || undefined,
+        };
+      });
+    } else if (savedQueues?.artigos?.length) {
+      artigoItems = savedQueues.artigos.map(q => ({ ...q, status: cleanStatus(q.status) }));
     }
 
-    // Pre-populate Serviços and Sobre from briefing data
-    const b: BriefingData = c.briefing_data ?? {};
-    const servicos: string[] = [];
-    if (b.main_service) servicos.push(b.main_service);
-    if (b.other_services) {
-      b.other_services.split(/[,;\n]/).map(s => s.trim()).filter(Boolean).forEach(s => servicos.push(s));
+    // ── Build servicos, sobre, extras from saved state or from briefing ───────
+    const bd2: BriefingData = c.briefing_data ?? {};
+    const servicosRaw: string[] = [];
+    if (bd2.main_service) servicosRaw.push(bd2.main_service);
+    if (bd2.other_services) {
+      String(bd2.other_services).split(/[,;\n]/).map(s => s.trim()).filter(Boolean).forEach(s => servicosRaw.push(s));
     }
-    const servicoItems: QueueItem[] = servicos.slice(0, 8).map(title => ({
-      id: uid(), title, status: "aguardando", content: "", categories: clientWPConfig.defaultCats,
+    const fallbackServicos: QueueItem[] = servicosRaw.slice(0, 8).map(title => ({
+      id: uid(), title, status: "aguardando" as const, content: "", categories: clientWPConfig.defaultCats,
     }));
-
-    const sobreItems: QueueItem[] = [
-      { id: uid(), title: `Sobre ${c.company_name || c.name}`, status: "aguardando", content: "", categories: clientWPConfig.defaultCats },
+    const fallbackSobre: QueueItem[] = [
+      { id: uid(), title: `Sobre ${c.company_name || c.name}`, status: "aguardando" as const, content: "", categories: clientWPConfig.defaultCats },
     ];
 
-    setQueues(prev => ({ ...prev, servicos: servicoItems, sobre: sobreItems }));
+    let servicoItems: QueueItem[];
+    let sobreItems: QueueItem[];
+    let extrasItems: QueueItem[];
+    if (savedQueues) {
+      servicoItems = savedQueues.servicos?.length
+        ? savedQueues.servicos.map(q => ({ ...q, status: cleanStatus(q.status) }))
+        : fallbackServicos;
+      sobreItems = savedQueues.sobre?.length
+        ? savedQueues.sobre.map(q => ({ ...q, status: cleanStatus(q.status) }))
+        : fallbackSobre;
+      extrasItems = (savedQueues.extras || []).map(q => ({ ...q, status: cleanStatus(q.status) }));
+    } else {
+      servicoItems = fallbackServicos;
+      sobreItems = fallbackSobre;
+      extrasItems = [];
+    }
+
+    setQueues({ artigos: artigoItems, servicos: servicoItems, sobre: sobreItems, extras: extrasItems });
     setLoadingClient(false);
-    toast.success(`Cliente "${c.company_name || c.name}" carregado!`);
+    isSavingEnabled.current = true; // Re-enable auto-save after loading complete
+    const restoredMsg = savedQueues ? " (progresso restaurado ✓)" : "";
+    toast.success(`Cliente "${c.company_name || c.name}" carregado!${restoredMsg}`);
   }
 
   const callAI = useCallback((prompt: string) => {
@@ -684,6 +751,104 @@ Retorne APENAS o HTML do conteúdo, sem explicações ou markdown.`;
       await sleep(500);
     }
     toast.success(`Todos os itens de "${section}" gerados!`);
+  }
+
+  // ── Generate + Publish in one click ────────────────────────────────────────
+  async function generateAndPublishOne(section: Section, itemId: string) {
+    if (!selectedClient) { toast.error("Selecione um cliente primeiro!"); return; }
+    if (!activeKey) { toast.error("Configure uma chave de IA em Configurações!"); return; }
+    if (!wpConfig.wpUrl || !wpConfig.wpUser || !wpConfig.wpPass) {
+      toast.error("Configure URL, usuário e senha WordPress nas configurações!"); return;
+    }
+    const item = queues[section].find(i => i.id === itemId);
+    if (!item) return;
+
+    setGenerating(itemId);
+    setPublishing(true);
+    setPublishLog([{ text: `⚡ Gerando conteúdo para "${item.title}"...`, type: "info" }]);
+    setQueues(prev => ({ ...prev, [section]: prev[section].map(i => i.id === itemId ? { ...i, status: "gerando" } : i) }));
+
+    const ctx = buildClientContext(selectedClient, estrategia);
+    const rules = section === "artigos" ? wpConfig.rulesArtigos : section === "servicos" ? wpConfig.rulesServicos : section === "sobre" ? wpConfig.rulesSobre : wpConfig.rulesExtras;
+    const sectionLabel = section === "artigos" ? "artigo de blog SEO" : section === "servicos" ? "página de serviço" : section === "sobre" ? "página Sobre" : "página extra (localidade/bairro/região/tema)";
+    const keywordLine = item.keyword ? `\nPALAVRA-CHAVE PRINCIPAL: "${item.keyword}"` : "";
+    const intentLine = item.intent ? `\nINTENÇÃO DE BUSCA: ${item.intent}` : "";
+    const formatLine = item.format ? `\nFORMATO: ${item.format}` : "";
+    const prompt = `Você é um redator especialista em SEO Local e marketing digital para pequenas empresas brasileiras.\n\nCONTEXTO DO CLIENTE:\n${ctx}\n\nTAREFA: Gere o conteúdo completo para o seguinte ${sectionLabel}:\nTÍTULO: "${item.title}"${keywordLine}${intentLine}${formatLine}\n\nREGRAS DE FORMATAÇÃO:\n${rules}\n\nIMPORTANTE: Use os dados reais do cliente acima. Mencione o nome da empresa, cidade, serviços específicos e diferenciais reais. Não seja genérico.\n\nRetorne APENAS o HTML do conteúdo, sem explicações ou markdown.`;
+
+    try {
+      const content = await callAI(prompt);
+
+      // Suggest categories
+      let categories = wpConfig.defaultCats;
+      if (wpCategories.length && wpConfig.aiSuggestCats && content) {
+        try {
+          const catList = wpCategories.map(c => `${c.id}:${c.name}`).join(", ");
+          const catPrompt = `Dado o título: "${item.title}"\nCategorias WP disponíveis: ${catList}\nRetorne APENAS os IDs mais relevantes (máximo 3), separados por vírgula. Apenas números.`;
+          const raw = await callAI(catPrompt);
+          const ids = raw.match(/\d+/g)?.map(Number).slice(0, 3) || [];
+          if (ids.length) categories = ids;
+        } catch { /* keep defaults */ }
+      }
+
+      // Save content to blog_articles if linked
+      if (item.articleId && content) {
+        await supabase.from("blog_articles").update({ content, status: "in_review" }).eq("id", item.articleId);
+      }
+
+      // Mark as ready in queue
+      setQueues(prev => ({
+        ...prev,
+        [section]: prev[section].map(i => i.id === itemId ? { ...i, status: "pronto", content, categories } : i)
+      }));
+      setGenerating(null);
+
+      // Now publish to WordPress
+      setPublishLog(l => [...l, { text: `📤 Publicando "${item.title}" no WordPress...`, type: "info" }]);
+      const { wpUrl, wpUser, wpPass, wpStatus } = wpConfig;
+      const creds = btoa(`${wpUser}:${wpPass}`);
+      const postType = section === "artigos" ? "posts" : "pages";
+      const body: any = { title: item.title, content, status: wpStatus || "draft" };
+      if (section === "artigos" && categories.length) body.categories = categories;
+
+      const res = await fetch(`${wpUrl}/wp-json/wp/v2/${postType}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Basic ${creds}` },
+        body: JSON.stringify(body),
+      });
+
+      if (res.ok) {
+        const d = await res.json();
+        setQueues(prev => ({ ...prev, [section]: prev[section].map(i => i.id === itemId ? { ...i, wpId: d.id, wpLink: d.link } : i) }));
+        if (item.articleId) {
+          await supabase.from("blog_articles").update({ status: "published", published_url: d.link }).eq("id", item.articleId);
+        }
+        setPublishLog(l => [...l, { text: `✓ "${item.title}" gerado e publicado! → ${d.link}`, type: "ok" }]);
+        toast.success(`"${item.title}" publicado no WordPress!`);
+      } else {
+        const e: any = await res.json().catch(() => ({}));
+        setPublishLog(l => [...l, { text: `✗ Falha na publicação: ${e?.message || "Erro " + res.status}`, type: "err" }]);
+        toast.error("Falha na publicação: " + (e?.message || `HTTP ${res.status}`));
+      }
+    } catch (e: any) {
+      setQueues(prev => ({ ...prev, [section]: prev[section].map(i => i.id === itemId ? { ...i, status: "erro", error: e.message } : i) }));
+      setPublishLog(l => [...l, { text: `✗ Erro: ${e.message}`, type: "err" }]);
+      toast.error(e.message);
+    } finally {
+      setGenerating(null);
+      setPublishing(false);
+    }
+  }
+
+  async function generateAndPublishAll(section: Section) {
+    const pending = queues[section].filter(i => i.status === "aguardando" || i.status === "erro");
+    if (!pending.length) { toast.info("Nenhum item pendente nesta seção!"); return; }
+    setPublishLog([{ text: `⚡ Iniciando geração e publicação automática de ${pending.length} item(ns)...`, type: "info" }]);
+    for (const item of pending) {
+      await generateAndPublishOne(section, item.id);
+      await sleep(600);
+    }
+    setPublishLog(l => [...l, { text: "🎉 Todos os itens foram gerados e publicados!", type: "ok" }]);
   }
 
   function updateTitle(section: Section, id: string, title: string) {
@@ -1060,7 +1225,7 @@ Retorne APENAS o HTML do conteúdo, sem explicações ou markdown.`;
                     </p>
                   )}
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap">
                   <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={() => addCustomItem(section)}>
                     + Adicionar título
                   </Button>
@@ -1072,6 +1237,18 @@ Retorne APENAS o HTML do conteúdo, sem explicações ou markdown.`;
                   >
                     <Zap className="h-3.5 w-3.5" /> Gerar todos
                   </Button>
+                  {queues[section].some(i => i.status === "aguardando" || i.status === "erro") && wpConfig.wpUrl && wpConfig.wpUser && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5 text-xs text-violet-600 border-violet-500/40 hover:bg-violet-50 dark:hover:bg-violet-950/20"
+                      onClick={() => { setPublishLog([]); generateAndPublishAll(section); }}
+                      disabled={!!generating || publishing}
+                      title="Gera o texto com IA e publica direto no WordPress automaticamente"
+                    >
+                      <Zap className="h-3 w-3" /><Send className="h-3 w-3" /> Gerar & Publicar
+                    </Button>
+                  )}
                   {readyCount(section) > 0 && (
                     <Button
                       size="sm"
@@ -1117,6 +1294,7 @@ Retorne APENAS o HTML do conteúdo, sem explicações ou markdown.`;
                       onEdit={() => { setEditItem({ section, id: item.id }); setEditContent(item.content); }}
                       onCopy={() => { navigator.clipboard.writeText(item.content); toast.success("Copiado!"); }}
                       onPublish={() => { setPublishLog([]); publishItem(section, item); }}
+                      onGenerateAndPublish={wpConfig.wpUrl && wpConfig.wpUser ? () => { setPublishLog([]); generateAndPublishOne(section, item.id); } : undefined}
                     />
                   ))}
                 </div>
@@ -1203,10 +1381,16 @@ Retorne APENAS o HTML do conteúdo, sem explicações ou markdown.`;
               <div className="space-y-1.5">
                 <Label className="text-xs">Status de publicação</Label>
                 <select className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={wpConfig.wpStatus} onChange={e => setWPConfig(p => ({ ...p, wpStatus: e.target.value }))}>
-                  <option value="draft">Rascunho</option>
-                  <option value="publish">Publicado</option>
+                  <option value="draft">Rascunho (invisível para visitantes)</option>
+                  <option value="publish">Publicado (visível publicamente)</option>
                   <option value="private">Privado</option>
                 </select>
+                {wpConfig.wpStatus === "draft" && (
+                  <p className="text-xs text-amber-600 flex items-start gap-1 mt-1">
+                    <AlertTriangle className="h-3 w-3 shrink-0 mt-0.5" />
+                    Páginas em <strong>Rascunho</strong> ficam invisíveis para visitantes — resultando em erro 404. Use <strong>Publicado</strong> para torná-las públicas imediatamente após a publicação.
+                  </p>
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs">Usuário WordPress</Label>
@@ -1328,9 +1512,10 @@ interface QueueCardProps {
   onEdit: () => void;
   onCopy: () => void;
   onPublish: () => void;
+  onGenerateAndPublish?: () => void;
 }
 
-function QueueCard({ item, categories, isGenerating, onTitleChange, onGenerate, onRemove, onEdit, onCopy, onPublish }: QueueCardProps) {
+function QueueCard({ item, categories, isGenerating, onTitleChange, onGenerate, onRemove, onEdit, onCopy, onPublish, onGenerateAndPublish }: QueueCardProps) {
   const [editingTitle, setEditingTitle] = useState(false);
   const [localTitle, setLocalTitle] = useState(item.title);
   const [expanded, setExpanded] = useState(false);
@@ -1417,6 +1602,17 @@ function QueueCard({ item, categories, isGenerating, onTitleChange, onGenerate, 
             {item.status !== "gerando" && !isGenerating && (
               <Button size="sm" variant={item.status === "pronto" ? "outline" : "default"} className="h-7 text-xs gap-1" onClick={onGenerate}>
                 <Zap className="h-3 w-3" /> {item.status === "pronto" ? "Re-gerar" : "Gerar"}
+              </Button>
+            )}
+            {item.status !== "gerando" && !isGenerating && item.status !== "pronto" && onGenerateAndPublish && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs gap-0.5 text-violet-600 border-violet-500/40 hover:bg-violet-50 dark:hover:bg-violet-950/20"
+                onClick={onGenerateAndPublish}
+                title="Gerar texto com IA e publicar direto no WordPress"
+              >
+                <Send className="h-3 w-3" /> Pub.
               </Button>
             )}
             {item.status === "gerando" && (
