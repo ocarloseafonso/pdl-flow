@@ -12,7 +12,7 @@ import {
   Wand2, Globe, RefreshCw, Copy, Trash2, Send, CheckCircle2,
   XCircle, Clock, ChevronDown, ChevronUp, Settings, Zap,
   Package, Info, Eye, EyeOff, BookOpen, User, AlertTriangle,
-  Sparkles, Loader2, FileText, PenLine
+  Sparkles, Loader2, FileText, PenLine, SearchCheck
 } from "lucide-react";
 import type { BlogArticle, Client, BriefingData } from "@/lib/types";
 
@@ -151,6 +151,8 @@ export default function GeradorWP() {
   const [selectedClient, setSelectedClient] = useState<ClientRow | null>(null);
   const [estrategia, setEstrategia] = useState<EstrategiaData>({});
   const [loadingClient, setLoadingClient] = useState(false);
+  const [analyzingStrategy, setAnalyzingStrategy] = useState(false);
+  const [analyzeLog, setAnalyzeLog] = useState<string[]>([]);
 
   const [queues, setQueues] = useState<Record<Section, QueueItem[]>>({ artigos: [], servicos: [], sobre: [] });
   const [activeSection, setActiveSection] = useState<Section>("artigos");
@@ -233,6 +235,194 @@ export default function GeradorWP() {
   const callAI = useCallback((prompt: string) => {
     return aiModel === "openai" ? callGPT(prompt) : callGemini(prompt);
   }, [aiModel]);
+
+  // ── Analyze strategy with AI ──────────────────────────────────────────────
+  async function analyzeWithAI() {
+    if (!selectedClient) return;
+    if (!activeKey) { toast.error("Configure uma chave de IA em Configurações!"); return; }
+
+    setAnalyzingStrategy(true);
+    setAnalyzeLog(["🔍 Buscando dados completos da cliente no banco..."]);
+
+    try {
+      // 1. Fetch fresh full client record
+      const { data: freshClient } = await supabase
+        .from("clients")
+        .select("*")
+        .eq("id", selectedClient.id)
+        .single();
+
+      if (!freshClient) throw new Error("Não foi possível carregar os dados da cliente.");
+
+      // 2. Also check blog_articles again
+      const { data: existingArticles } = await supabase
+        .from("blog_articles")
+        .select("*")
+        .eq("client_id", selectedClient.id)
+        .order("position");
+
+      setAnalyzeLog(l => [...l, "✓ Dados carregados. Enviando para a IA analisar..."]);
+
+      // 3. Build rich context from all available data
+      const est = parseEstrategia(freshClient.notes);
+      const b = freshClient.briefing_data ?? {};
+
+      const contextLines: string[] = [
+        `EMPRESA: ${freshClient.company_name || freshClient.name}`,
+        `SEGMENTO: ${freshClient.segment || b.segment || "—"}`,
+        `SITE: ${freshClient.site_url || b.website || "—"}`,
+        `CIDADE: ${b.city_state || "—"}`,
+        "",
+      ];
+
+      // Briefing completo
+      const briefingEntries = Object.entries(b).filter(([, v]) => v && String(v).trim());
+      if (briefingEntries.length) {
+        contextLines.push("── BRIEFING COMPLETO ──");
+        briefingEntries.forEach(([k, v]) => contextLines.push(`${k}: ${v}`));
+        contextLines.push("");
+      }
+
+      // Estratégia dos agentes
+      if (est.estrategia) {
+        contextLines.push("── ESTRATÉGIA PDL GERADA ──");
+        contextLines.push(est.estrategia);
+        contextLines.push("");
+      }
+      if (est.discussao) {
+        contextLines.push("── AJUSTES E DECISÕES ──");
+        contextLines.push(est.discussao);
+        contextLines.push("");
+      }
+      if (est.execucao) {
+        contextLines.push("── MATERIAL DE EXECUÇÃO ──");
+        contextLines.push(est.execucao.slice(0, 3000));
+        contextLines.push("");
+      }
+
+      // Artigos já existentes no banco
+      if (existingArticles && existingArticles.length > 0) {
+        contextLines.push("── ARTIGOS JÁ NA PAUTA ──");
+        existingArticles.forEach((a: any) => {
+          contextLines.push(`${a.position}. ${a.title}${a.keyword ? ` | KW: ${a.keyword}` : ""}`);
+        });
+        contextLines.push("");
+      }
+
+      const fullContext = contextLines.join("\n");
+
+      // 4. Ask AI to extract structured content plan
+      const analysisPrompt = `Você é um estrategista de conteúdo digital especialista em SEO Local para pequenas empresas brasileiras.
+
+Analise TODOS os dados abaixo sobre a cliente e retorne um JSON estruturado com o plano de conteúdo WordPress.
+
+${fullContext}
+
+Baseado em TUDO que você leu acima, retorne APENAS um JSON válido neste formato exato (sem markdown, sem explicações):
+{
+  "artigos": [
+    { "titulo": "Título do artigo 1", "keyword": "palavra-chave principal", "intencao": "informacional|transacional|navegacional", "formato": "guia|lista|comparativo|dica" },
+    { "titulo": "Título do artigo 2", "keyword": "palavra-chave", "intencao": "...", "formato": "..." }
+  ],
+  "servicos": [
+    { "titulo": "Nome do Serviço 1" },
+    { "titulo": "Nome do Serviço 2" }
+  ],
+  "sobre": [
+    { "titulo": "Sobre [Nome da Empresa]" }
+  ],
+  "resumo": "Breve resumo em 2 frases do que foi identificado na estratégia da cliente."
+}
+
+REGRAS:
+- Artigos: extraia todos os títulos que constam na pauta/estratégia. Se não houver pauta explícita, sugira de 6 a 9 artigos baseados no segmento e palavras-chave identificadas.
+- Serviços: extraia todos os serviços/produtos mencionados. Cada serviço vira uma página separada.
+- Sobre: sempre inclua 1 página "Sobre" com o nome da empresa.
+- Use dados REAIS da cliente. Não seja genérico.
+- Retorne APENAS o JSON, sem nenhum texto antes ou depois.`;
+
+      const raw = await callAI(analysisPrompt);
+
+      // 5. Parse JSON response
+      let parsed: any;
+      try {
+        // Strip any markdown code fences if present
+        const clean = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+        parsed = JSON.parse(clean);
+      } catch {
+        throw new Error("A IA não retornou um JSON válido. Tente novamente.");
+      }
+
+      setAnalyzeLog(l => [...l, `✓ Análise concluída! ${parsed.resumo || ""}`]);
+
+      // 6. Populate queues
+      const artigoItems: QueueItem[] = (parsed.artigos || []).map((a: any) => ({
+        id: uid(),
+        title: a.titulo || a.title || "Sem título",
+        keyword: a.keyword || a.palavraChave || null,
+        intent: a.intencao || a.intent || null,
+        format: a.formato || a.format || null,
+        status: "aguardando" as const,
+        content: "",
+        categories: wpConfig.defaultCats,
+      }));
+
+      const servicoItems: QueueItem[] = (parsed.servicos || []).map((s: any) => ({
+        id: uid(),
+        title: s.titulo || s.title || "Sem título",
+        status: "aguardando" as const,
+        content: "",
+        categories: wpConfig.defaultCats,
+      }));
+
+      const sobreItems: QueueItem[] = (parsed.sobre || [{ titulo: `Sobre ${freshClient.company_name || freshClient.name}` }]).map((s: any) => ({
+        id: uid(),
+        title: s.titulo || s.title || `Sobre ${freshClient.company_name || freshClient.name}`,
+        status: "aguardando" as const,
+        content: "",
+        categories: wpConfig.defaultCats,
+      }));
+
+      // 7. If AI found artigos and blog_articles table is empty, save them
+      if (artigoItems.length > 0 && (!existingArticles || existingArticles.length === 0)) {
+        const inserts = artigoItems.map((item, idx) => ({
+          client_id: selectedClient.id,
+          position: idx + 1,
+          title: item.title,
+          keyword: item.keyword || null,
+          intent: item.intent || null,
+          format: item.format || null,
+          status: "todo" as const,
+        }));
+        const { data: saved } = await supabase.from("blog_articles").insert(inserts).select();
+        // Link articleIds
+        if (saved) {
+          saved.forEach((row: any, idx: number) => {
+            if (artigoItems[idx]) artigoItems[idx].articleId = row.id;
+          });
+        }
+        setAnalyzeLog(l => [...l, `✓ ${artigoItems.length} artigos salvos na pauta do cliente.`]);
+      }
+
+      setQueues({ artigos: artigoItems, servicos: servicoItems, sobre: sobreItems });
+      setEstrategia(est);
+
+      setAnalyzeLog(l => [...l,
+        `✓ ${artigoItems.length} artigo(s) identificado(s).`,
+        `✓ ${servicoItems.length} serviço(s) identificado(s).`,
+        `✓ ${sobreItems.length} página(s) Sobre identificada(s).`,
+        "🎉 Pronto! Revise os títulos e clique em Gerar."
+      ]);
+
+      toast.success(`Estratégia analisada! ${artigoItems.length} artigos, ${servicoItems.length} serviços identificados.`);
+
+    } catch (e: any) {
+      setAnalyzeLog(l => [...l, `⚠️ Erro: ${e.message}`]);
+      toast.error("Erro na análise: " + e.message);
+    } finally {
+      setAnalyzingStrategy(false);
+    }
+  }
 
   // Generate single item
   async function generateOne(section: Section, itemId: string) {
@@ -421,7 +611,7 @@ Retorne APENAS o HTML do conteúdo, sem explicações ou markdown.`;
           {activeKey ? (
             <Badge variant="secondary" className="gap-1 text-xs">
               <CheckCircle2 className="h-3 w-3 text-green-500" />
-              {aiModel === "openai" ? "GPT-4o-mini" : "Gemini 2.5 Flash"}
+              {aiModel === "openai" ? "GPT-5 mini" : "Gemini 2.5 Flash"}
             </Badge>
           ) : (
             <Badge variant="destructive" className="gap-1 text-xs">
@@ -475,7 +665,7 @@ Retorne APENAS o HTML do conteúdo, sem explicações ou markdown.`;
               <Label className="text-xs text-muted-foreground mb-1 block">Modelo de IA</Label>
               <div className="flex gap-2">
                 {[
-                  { value: "openai", label: "GPT-4o-mini", disabled: !openAiKey },
+                  { value: "openai", label: "GPT-5 mini", disabled: !openAiKey },
                   { value: "gemini", label: "Gemini 2.5 Flash", disabled: !geminiKey },
                 ].map(m => (
                   <button
@@ -504,23 +694,56 @@ Retorne APENAS o HTML do conteúdo, sem explicações ou markdown.`;
           )}
 
           {selectedClient && !loadingClient && (
-            <div className="flex flex-wrap gap-3 pt-1">
-              {selectedClient.site_url && (
-                <Badge variant="outline" className="gap-1 text-xs">
-                  <Globe className="h-3 w-3" /> {selectedClient.site_url}
+            <div className="space-y-3 pt-1">
+              <div className="flex flex-wrap gap-2">
+                {selectedClient.site_url && (
+                  <Badge variant="outline" className="gap-1 text-xs">
+                    <Globe className="h-3 w-3" /> {selectedClient.site_url}
+                  </Badge>
+                )}
+                {selectedClient.segment && (
+                  <Badge variant="outline" className="gap-1 text-xs">{selectedClient.segment}</Badge>
+                )}
+                <Badge variant={hasEstrategia ? "default" : "secondary"} className="gap-1 text-xs">
+                  <Sparkles className="h-3 w-3" />
+                  {hasEstrategia ? "Estratégia carregada" : "Sem estratégia nos agentes"}
                 </Badge>
+                <Badge variant={queues.artigos.length > 0 ? "default" : "secondary"} className="gap-1 text-xs">
+                  <BookOpen className="h-3 w-3" />
+                  {queues.artigos.length > 0 ? `${queues.artigos.length} artigos na pauta` : "Sem pauta de artigos"}
+                </Badge>
+              </div>
+
+              {/* ── Analyze button ── */}
+              <div className="flex items-center gap-3 p-3 rounded-lg border border-dashed border-primary/40 bg-primary/3">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium">Analisar estratégia com IA</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    A IA lê toda a estratégia dos Agentes, o briefing e identifica automaticamente os artigos, serviços e página Sobre.
+                  </p>
+                </div>
+                <Button
+                  onClick={analyzeWithAI}
+                  disabled={analyzingStrategy || !activeKey}
+                  className="gap-2 shrink-0"
+                  variant="default"
+                >
+                  {analyzingStrategy
+                    ? <><Loader2 className="h-4 w-4 animate-spin" /> Analisando...</>
+                    : <><SearchCheck className="h-4 w-4" /> Verificar cliente</>}
+                </Button>
+              </div>
+
+              {/* Analysis log */}
+              {analyzeLog.length > 0 && (
+                <div className="rounded-md bg-muted/40 border p-3 space-y-0.5 font-mono text-xs">
+                  {analyzeLog.map((line, i) => (
+                    <div key={i} className={line.startsWith("⚠️") ? "text-destructive" : line.startsWith("🎉") ? "text-green-600 font-semibold" : "text-muted-foreground"}>
+                      {line}
+                    </div>
+                  ))}
+                </div>
               )}
-              {selectedClient.segment && (
-                <Badge variant="outline" className="gap-1 text-xs">{selectedClient.segment}</Badge>
-              )}
-              <Badge variant={hasEstrategia ? "default" : "secondary"} className="gap-1 text-xs">
-                <Sparkles className="h-3 w-3" />
-                {hasEstrategia ? "Estratégia carregada" : "Sem estratégia gerada"}
-              </Badge>
-              <Badge variant={queues.artigos.length > 0 ? "default" : "secondary"} className="gap-1 text-xs">
-                <BookOpen className="h-3 w-3" />
-                {queues.artigos.length > 0 ? `${queues.artigos.length} artigos na pauta` : "Sem pauta de artigos"}
-              </Badge>
             </div>
           )}
         </CardContent>
