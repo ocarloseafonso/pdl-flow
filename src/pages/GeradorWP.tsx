@@ -18,7 +18,7 @@ import type { BlogArticle, Client, BriefingData } from "@/lib/types";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type Section = "artigos" | "servicos" | "sobre";
+type Section = "artigos" | "servicos" | "sobre" | "extras";
 
 interface QueueItem {
   id: string;
@@ -41,7 +41,7 @@ interface WPCategory { id: number; name: string; count: number; }
 interface WPConfig {
   wpUrl: string; wpUser: string; wpPass: string; wpStatus: string;
   genImage: boolean; aiSuggestCats: boolean; defaultCats: number[];
-  rulesArtigos: string; rulesServicos: string; rulesSobre: string;
+  rulesArtigos: string; rulesServicos: string; rulesSobre: string; rulesExtras: string;
 }
 
 interface ClientRow {
@@ -61,6 +61,7 @@ const DEFAULT_RULES: Record<Section, string> = {
   artigos: "Formato HTML completo (sem <html>/<head>/<body>). Use H2 e H3, parágrafos, listas. SEO otimizado com a palavra-chave no título, primeiro parágrafo e ao longo do texto. Português do Brasil. Entre 2500 e 3000 palavras.",
   servicos: "Formato HTML. Descreva o serviço em detalhes, benefícios, como funciona, para quem é indicado, diferenciais e CTA para contato. Tom profissional. Português do Brasil.",
   sobre: "Formato HTML. Apresente a empresa/profissional com história, missão, valores e credenciais. Tom humanizado e próximo. Português do Brasil.",
+  extras: "Formato HTML. Crie uma página otimizada para SEO local, focada na localidade/bairro/região/tema específico. Mencione os serviços disponíveis na região, vantagens do atendimento local, diferenciais da empresa e inclua CTA para contato. Tom profissional e localizado. Português do Brasil. Entre 800 e 1500 palavras.",
 };
 
 function loadWPConfig(): WPConfig {
@@ -68,7 +69,7 @@ function loadWPConfig(): WPConfig {
     const raw = localStorage.getItem(WP_CONFIG_KEY);
     if (raw) return { ...{ genImage: false, aiSuggestCats: true, defaultCats: [], ...DEFAULT_RULES }, ...JSON.parse(raw) };
   } catch { /* */ }
-  return { wpUrl: "", wpUser: "", wpPass: "", wpStatus: "draft", genImage: false, aiSuggestCats: true, defaultCats: [], rulesArtigos: DEFAULT_RULES.artigos, rulesServicos: DEFAULT_RULES.servicos, rulesSobre: DEFAULT_RULES.sobre };
+  return { wpUrl: "", wpUser: "", wpPass: "", wpStatus: "draft", genImage: false, aiSuggestCats: true, defaultCats: [], rulesArtigos: DEFAULT_RULES.artigos, rulesServicos: DEFAULT_RULES.servicos, rulesSobre: DEFAULT_RULES.sobre, rulesExtras: DEFAULT_RULES.extras };
 }
 
 function loadWPConfigForClient(c: ClientRow): WPConfig {
@@ -81,6 +82,7 @@ function loadWPConfigForClient(c: ClientRow): WPConfig {
       rulesArtigos: DEFAULT_RULES.artigos,
       rulesServicos: DEFAULT_RULES.servicos,
       rulesSobre: DEFAULT_RULES.sobre,
+      rulesExtras: DEFAULT_RULES.extras,
       ...b.wp_config,
     };
   }
@@ -94,6 +96,7 @@ function loadWPConfigForClient(c: ClientRow): WPConfig {
         rulesArtigos: DEFAULT_RULES.artigos,
         rulesServicos: DEFAULT_RULES.servicos,
         rulesSobre: DEFAULT_RULES.sobre,
+        rulesExtras: DEFAULT_RULES.extras,
         ...JSON.parse(raw),
       };
     }
@@ -112,6 +115,7 @@ function loadWPConfigForClient(c: ClientRow): WPConfig {
     rulesArtigos: DEFAULT_RULES.artigos,
     rulesServicos: DEFAULT_RULES.servicos,
     rulesSobre: DEFAULT_RULES.sobre,
+    rulesExtras: DEFAULT_RULES.extras,
   };
 }
 
@@ -319,7 +323,7 @@ export default function GeradorWP() {
   const [analyzingStrategy, setAnalyzingStrategy] = useState(false);
   const [analyzeLog, setAnalyzeLog] = useState<string[]>([]);
 
-  const [queues, setQueues] = useState<Record<Section, QueueItem[]>>({ artigos: [], servicos: [], sobre: [] });
+  const [queues, setQueues] = useState<Record<Section, QueueItem[]>>({ artigos: [], servicos: [], sobre: [], extras: [] });
   const [activeSection, setActiveSection] = useState<Section>("artigos");
   const [generating, setGenerating] = useState<string | null>(null); // itemId being generated
 
@@ -343,7 +347,7 @@ export default function GeradorWP() {
   async function selectClient(c: ClientRow) {
     setLoadingClient(true);
     setSelectedClient(c);
-    setQueues({ artigos: [], servicos: [], sobre: [] });
+    setQueues({ artigos: [], servicos: [], sobre: [], extras: [] });
 
     // Parse strategy from notes
     const est = parseEstrategia(c.notes);
@@ -495,6 +499,10 @@ Baseado em TUDO que você leu acima, retorne APENAS um JSON válido neste format
   "sobre": [
     { "titulo": "Sobre [Nome da Empresa]" }
   ],
+  "paginas_extras": [
+    { "titulo": "Título da Página Extra 1 (ex: Manicure no Bairro X)", "tipo": "bairro|região|tema", "keyword": "keyword seo local" },
+    { "titulo": "Título da Página Extra 2", "tipo": "bairro|região|tema", "keyword": "keyword seo local" }
+  ],
   "resumo": "Breve resumo em 2 frases do que foi identificado na estratégia da cliente."
 }
 
@@ -502,6 +510,7 @@ REGRAS:
 - Artigos: extraia todos os títulos que constam na pauta/estratégia. Se não houver pauta explícita, sugira de 6 a 9 artigos baseados no segmento e palavras-chave identificadas.
 - Serviços: extraia todos os serviços/produtos mencionados. Cada serviço vira uma página separada.
 - Sobre: sempre inclua 1 página "Sobre" com o nome da empresa.
+- Páginas Extras: MUITO IMPORTANTE — extraia TODAS as páginas adicionais mencionadas na estratégia, como páginas por bairro, região, cidade vizinha, ou temáticas específicas (ex: "Depilação no Bairro X", "Advogada em Y", "Serviço Z para [perfil]"). Se não houver páginas extras na estratégia, retorne um array vazio [].
 - Use dados REAIS da cliente. Não seja genérico.
 - Retorne APENAS o JSON, sem nenhum texto antes ou depois.`;
 
@@ -547,6 +556,16 @@ REGRAS:
         categories: wpConfig.defaultCats,
       }));
 
+      const extrasItems: QueueItem[] = (parsed.paginas_extras || []).map((p: any) => ({
+        id: uid(),
+        title: p.titulo || p.title || "Sem título",
+        keyword: p.keyword || null,
+        intent: p.tipo || null,
+        status: "aguardando" as const,
+        content: "",
+        categories: wpConfig.defaultCats,
+      }));
+
       // 7. If AI found artigos and blog_articles table is empty, save them
       if (artigoItems.length > 0 && (!existingArticles || existingArticles.length === 0)) {
         const inserts = artigoItems.map((item, idx) => ({
@@ -568,17 +587,18 @@ REGRAS:
         setAnalyzeLog(l => [...l, `✓ ${artigoItems.length} artigos salvos na pauta do cliente.`]);
       }
 
-      setQueues({ artigos: artigoItems, servicos: servicoItems, sobre: sobreItems });
+      setQueues({ artigos: artigoItems, servicos: servicoItems, sobre: sobreItems, extras: extrasItems });
       setEstrategia(est);
 
       setAnalyzeLog(l => [...l,
         `✓ ${artigoItems.length} artigo(s) identificado(s).`,
         `✓ ${servicoItems.length} serviço(s) identificado(s).`,
         `✓ ${sobreItems.length} página(s) Sobre identificada(s).`,
+        `✓ ${extrasItems.length} página(s) extra(s) identificada(s).`,
         "🎉 Pronto! Revise os títulos e clique em Gerar."
       ]);
 
-      toast.success(`Estratégia analisada! ${artigoItems.length} artigos, ${servicoItems.length} serviços identificados.`);
+      toast.success(`Estratégia analisada! ${artigoItems.length} artigos, ${servicoItems.length} serviços, ${extrasItems.length} páginas extras identificados.`);
 
     } catch (e: any) {
       setAnalyzeLog(l => [...l, `⚠️ Erro: ${e.message}`]);
@@ -600,8 +620,8 @@ REGRAS:
     setQueues(prev => ({ ...prev, [section]: prev[section].map(i => i.id === itemId ? { ...i, status: "gerando" } : i) }));
 
     const ctx = buildClientContext(selectedClient, estrategia);
-    const rules = section === "artigos" ? wpConfig.rulesArtigos : section === "servicos" ? wpConfig.rulesServicos : wpConfig.rulesSobre;
-    const sectionLabel = section === "artigos" ? "artigo de blog SEO" : section === "servicos" ? "página de serviço" : "página Sobre";
+    const rules = section === "artigos" ? wpConfig.rulesArtigos : section === "servicos" ? wpConfig.rulesServicos : section === "sobre" ? wpConfig.rulesSobre : wpConfig.rulesExtras;
+    const sectionLabel = section === "artigos" ? "artigo de blog SEO" : section === "servicos" ? "página de serviço" : section === "sobre" ? "página Sobre" : "página extra (localidade/bairro/região/tema)";
 
     const keywordLine = item.keyword ? `\nPALAVRA-CHAVE PRINCIPAL: "${item.keyword}"` : "";
     const intentLine = item.intent ? `\nINTENÇÃO DE BUSCA: ${item.intent}` : "";
@@ -780,13 +800,14 @@ Retorne APENAS o HTML do conteúdo, sem explicações ou markdown.`;
 
   // Stats
   const readyCount = (s: Section) => queues[s].filter(i => i.status === "pronto").length;
-  const totalReady = (["artigos", "servicos", "sobre"] as Section[]).reduce((a, s) => a + readyCount(s), 0);
+  const totalReady = (["artigos", "servicos", "sobre", "extras"] as Section[]).reduce((a, s) => a + readyCount(s), 0);
   const hasEstrategia = !!(estrategia.estrategia || estrategia.execucao);
 
   const sectionConfig: Record<Section, { label: string; icon: React.ReactNode; color: string }> = {
     artigos: { label: "Artigos de Blog", icon: <BookOpen className="h-4 w-4" />, color: "text-blue-600" },
     servicos: { label: "Páginas de Serviço", icon: <Package className="h-4 w-4" />, color: "text-purple-600" },
     sobre: { label: "Página Sobre", icon: <Info className="h-4 w-4" />, color: "text-emerald-600" },
+    extras: { label: "Páginas Extras", icon: <Globe className="h-4 w-4" />, color: "text-orange-600" },
   };
 
   return (
@@ -988,8 +1009,8 @@ Retorne APENAS o HTML do conteúdo, sem explicações ou markdown.`;
 
       {/* ── Stats ──────────────────────────────────────────────────────── */}
       {selectedClient && (
-        <div className="grid grid-cols-3 gap-3">
-          {(["artigos", "servicos", "sobre"] as Section[]).map(s => (
+        <div className="grid grid-cols-4 gap-3">
+          {(["artigos", "servicos", "sobre", "extras"] as Section[]).map(s => (
             <Card key={s} className="text-center py-3 cursor-pointer hover:border-primary/50 transition-colors" onClick={() => setActiveSection(s)}>
               <div className={`text-2xl font-bold ${sectionConfig[s].color}`}>{readyCount(s)}/{queues[s].length}</div>
               <div className="text-xs text-muted-foreground mt-0.5 flex items-center justify-center gap-1">
@@ -1004,7 +1025,7 @@ Retorne APENAS o HTML do conteúdo, sem explicações ou markdown.`;
       {selectedClient ? (
         <Tabs value={activeSection} onValueChange={v => setActiveSection(v as Section)}>
           <TabsList className="w-full">
-            {(["artigos", "servicos", "sobre"] as Section[]).map(s => (
+            {(["artigos", "servicos", "sobre", "extras"] as Section[]).map(s => (
               <TabsTrigger key={s} value={s} className="flex-1 gap-1.5 text-xs sm:text-sm">
                 {sectionConfig[s].icon} {sectionConfig[s].label}
                 {queues[s].length > 0 && <Badge variant="secondary" className="h-4 px-1 text-[10px]">{queues[s].length}</Badge>}
@@ -1012,7 +1033,7 @@ Retorne APENAS o HTML do conteúdo, sem explicações ou markdown.`;
             ))}
           </TabsList>
 
-          {(["artigos", "servicos", "sobre"] as Section[]).map(section => (
+          {(["artigos", "servicos", "sobre", "extras"] as Section[]).map(section => (
             <TabsContent key={section} value={section} className="mt-4 space-y-3">
               {/* Section header */}
               <div className="flex items-center justify-between flex-wrap gap-2">
@@ -1026,6 +1047,16 @@ Retorne APENAS o HTML do conteúdo, sem explicações ou markdown.`;
                   {section === "artigos" && queues.artigos.length > 0 && (
                     <p className="text-xs text-muted-foreground mt-0.5">
                       Títulos puxados da pauta definida pelos Agentes. Edite se necessário.
+                    </p>
+                  )}
+                  {section === "extras" && queues.extras.length === 0 && (
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Nenhuma página extra encontrada. Use "Verificar cliente" para que a IA extraia páginas de bairros/regiões da estratégia.
+                    </p>
+                  )}
+                  {section === "extras" && queues.extras.length > 0 && (
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Páginas adicionais extraídas da estratégia (bairros, regiões, temas). Edite os títulos e gere o conteúdo.
                     </p>
                   )}
                 </div>
@@ -1059,7 +1090,7 @@ Retorne APENAS o HTML do conteúdo, sem explicações ou markdown.`;
               {queues[section].length === 0 ? (
                 <Card className="border-dashed">
                   <CardContent className="py-10 text-center text-muted-foreground">
-                    <div className="text-4xl mb-2 opacity-30">{section === "artigos" ? "📰" : section === "servicos" ? "📦" : "👤"}</div>
+                    <div className="text-4xl mb-2 opacity-30">{section === "artigos" ? "📰" : section === "servicos" ? "📦" : section === "extras" ? "🗺️" : "👤"}</div>
                     <p className="text-sm">
                       {section === "artigos"
                         ? "Nenhuma pauta de artigos definida para este cliente ainda."
@@ -1128,7 +1159,7 @@ Retorne APENAS o HTML do conteúdo, sem explicações ou markdown.`;
               onClick={async () => {
                 setPublishing(true);
                 setPublishLog([{ text: `🚀 Publicando ${totalReady} item(ns)...`, type: "info" }]);
-                for (const s of ["artigos", "servicos", "sobre"] as Section[]) {
+                for (const s of ["artigos", "servicos", "sobre", "extras"] as Section[]) {
                   for (const item of queues[s].filter(i => i.status === "pronto")) {
                     await publishItem(s, item); await sleep(400);
                   }
@@ -1194,14 +1225,14 @@ Retorne APENAS o HTML do conteúdo, sem explicações ou markdown.`;
 
             <div className="space-y-3">
               <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Regras de geração por seção</Label>
-              {(["artigos", "servicos", "sobre"] as Section[]).map(s => (
+              {(["artigos", "servicos", "sobre", "extras"] as Section[]).map(s => (
                 <div key={s} className="space-y-1">
                   <Label className="text-xs">{sectionConfig[s].label}</Label>
                   <Textarea
                     rows={2}
-                    value={s === "artigos" ? wpConfig.rulesArtigos : s === "servicos" ? wpConfig.rulesServicos : wpConfig.rulesSobre}
+                    value={s === "artigos" ? wpConfig.rulesArtigos : s === "servicos" ? wpConfig.rulesServicos : s === "sobre" ? wpConfig.rulesSobre : wpConfig.rulesExtras}
                     onChange={e => {
-                      const field = s === "artigos" ? "rulesArtigos" : s === "servicos" ? "rulesServicos" : "rulesSobre";
+                      const field = s === "artigos" ? "rulesArtigos" : s === "servicos" ? "rulesServicos" : s === "sobre" ? "rulesSobre" : "rulesExtras";
                       setWPConfig(p => ({ ...p, [field]: e.target.value }));
                     }}
                     className="text-xs"
@@ -1263,7 +1294,9 @@ Retorne APENAS o HTML do conteúdo, sem explicações ou markdown.`;
               <Textarea className="min-h-[50vh] font-mono text-xs leading-relaxed" value={editContent} onChange={e => setEditContent(e.target.value)} />
             </div>
             <div className="p-4 border-t flex gap-2 justify-between items-center">
-              <p className="text-xs text-muted-foreground">{editContent.length} caracteres</p>
+              <p className="text-xs text-muted-foreground">
+                {editContent.trim() ? editContent.trim().split(/\s+/).filter(Boolean).length : 0} palavras · {editContent.length} caracteres
+              </p>
               <div className="flex gap-2">
                 <Button variant="outline" onClick={() => setEditItem(null)}>Cancelar</Button>
                 <Button onClick={() => {
