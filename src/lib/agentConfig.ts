@@ -963,7 +963,7 @@ export async function callRegularAgent(
           ...messages,          // actual user conversation
         ],
         temperature: 0.7,
-        max_tokens: maxTokens,
+        max_completion_tokens: maxTokens,
       }),
     });
     if (!res.ok) {
@@ -998,7 +998,7 @@ export async function callConversationalAgent(
         ...messages,
       ],
       temperature: 0.7,
-      max_tokens: 800,
+      max_completion_tokens: 800,
     }),
   });
   if (!res.ok) {
@@ -1042,7 +1042,7 @@ export async function callVisionAgent(
       model: "gpt-5-mini",
       messages: apiMessages,
       temperature: 0.7,
-      max_tokens: 4000 
+      max_completion_tokens: 4000 
     }),
   });
   if (!res.ok) {
