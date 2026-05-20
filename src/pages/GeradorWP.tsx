@@ -58,7 +58,7 @@ interface EstrategiaData {
 
 const WP_CONFIG_KEY = "pdl_wpforge_config";
 const DEFAULT_RULES: Record<Section, string> = {
-  artigos: "Formato HTML completo (sem <html>/<head>/<body>). Use H2 e H3, parágrafos, listas. SEO otimizado com a palavra-chave no título, primeiro parágrafo e ao longo do texto. Português do Brasil. Mínimo 800 palavras.",
+  artigos: "Formato HTML completo (sem <html>/<head>/<body>). Use H2 e H3, parágrafos, listas. SEO otimizado com a palavra-chave no título, primeiro parágrafo e ao longo do texto. Português do Brasil. Entre 2500 e 3000 palavras.",
   servicos: "Formato HTML. Descreva o serviço em detalhes, benefícios, como funciona, para quem é indicado, diferenciais e CTA para contato. Tom profissional. Português do Brasil.",
   sobre: "Formato HTML. Apresente a empresa/profissional com história, missão, valores e credenciais. Tom humanizado e próximo. Português do Brasil.",
 };
@@ -73,46 +73,45 @@ function loadWPConfig(): WPConfig {
 
 function loadWPConfigForClient(c: ClientRow): WPConfig {
   const b = c.briefing_data ?? {};
-  
-  // 1. Try to load from cloud briefing_data.wp_config
+
+  // 1. Prioridade máxima: config salva na nuvem (briefing_data.wp_config)
   if (b.wp_config && typeof b.wp_config === "object") {
     return {
-      ...{ genImage: false, aiSuggestCats: true, defaultCats: [], ...DEFAULT_RULES },
-      ...b.wp_config
+      genImage: false, aiSuggestCats: true, defaultCats: [],
+      rulesArtigos: DEFAULT_RULES.artigos,
+      rulesServicos: DEFAULT_RULES.servicos,
+      rulesSobre: DEFAULT_RULES.sobre,
+      ...b.wp_config,
     };
   }
-  
-  // 2. Try to load from client-specific localStorage
+
+  // 2. Fallback: config salva no localStorage específico deste cliente
   try {
     const raw = localStorage.getItem(`pdl_wpforge_config_${c.id}`);
     if (raw) {
       return {
-        ...{ genImage: false, aiSuggestCats: true, defaultCats: [], ...DEFAULT_RULES },
-        ...JSON.parse(raw)
+        genImage: false, aiSuggestCats: true, defaultCats: [],
+        rulesArtigos: DEFAULT_RULES.artigos,
+        rulesServicos: DEFAULT_RULES.servicos,
+        rulesSobre: DEFAULT_RULES.sobre,
+        ...JSON.parse(raw),
       };
     }
   } catch { /* */ }
-  
-  // 3. Fallback to global localStorage template or default rules
-  let globalCfg: Partial<WPConfig> = {};
-  try {
-    const rawGlobal = localStorage.getItem(WP_CONFIG_KEY);
-    if (rawGlobal) {
-      globalCfg = JSON.parse(rawGlobal);
-    }
-  } catch { /* */ }
-  
+
+  // 3. Nenhuma config encontrada: retorna em branco para este cliente
+  // (NUNCA herda credenciais de outro cliente via config global)
   return {
-    wpUrl: c.site_url ? c.site_url.replace(/\/$/, "") : (globalCfg.wpUrl || ""),
-    wpUser: globalCfg.wpUser || "",
-    wpPass: globalCfg.wpPass || "",
-    wpStatus: globalCfg.wpStatus || "draft",
-    genImage: globalCfg.genImage ?? false,
-    aiSuggestCats: globalCfg.aiSuggestCats ?? true,
-    defaultCats: globalCfg.defaultCats || [],
-    rulesArtigos: globalCfg.rulesArtigos || DEFAULT_RULES.artigos,
-    rulesServicos: globalCfg.rulesServicos || DEFAULT_RULES.servicos,
-    rulesSobre: globalCfg.rulesSobre || DEFAULT_RULES.sobre,
+    wpUrl: c.site_url ? c.site_url.replace(/\/$/, "") : "",
+    wpUser: "",
+    wpPass: "",
+    wpStatus: "draft",
+    genImage: false,
+    aiSuggestCats: true,
+    defaultCats: [],
+    rulesArtigos: DEFAULT_RULES.artigos,
+    rulesServicos: DEFAULT_RULES.servicos,
+    rulesSobre: DEFAULT_RULES.sobre,
   };
 }
 
