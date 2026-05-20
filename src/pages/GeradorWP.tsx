@@ -30,6 +30,8 @@ interface QueueItem {
   content: string;
   error?: string;
   categories: number[];
+  tags?: string[];
+  suggestedCats?: string[];
   wpId?: number;
   wpLink?: string;
   // For artigos: linked to blog_articles row
@@ -270,6 +272,81 @@ function buildClientContext(client: ClientRow, estrategia: EstrategiaData): stri
   return lines.join("\n");
 }
 
+async function resolveTaxonomies(wpUrl: string, creds: string, catNames: string[], tagNames: string[]) {
+  const categoryIds: number[] = [];
+  const tagIds: number[] = [];
+
+  // Resolve Categories
+  for (const rawName of catNames) {
+    const name = rawName.trim();
+    if (!name) continue;
+    try {
+      const res = await fetch(`${wpUrl}/wp-json/wp/v2/categories`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Basic ${creds}` },
+        body: JSON.stringify({ name })
+      });
+      if (res.ok) {
+        const d = await res.json();
+        categoryIds.push(d.id);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        if (err.code === "term_exists" && err.data?.term_id) {
+          categoryIds.push(err.data.term_id);
+        } else {
+          // Search fallback
+          const searchRes = await fetch(`${wpUrl}/wp-json/wp/v2/categories?search=${encodeURIComponent(name)}`, {
+            headers: { Authorization: `Basic ${creds}` }
+          });
+          if (searchRes.ok) {
+            const items = await searchRes.json();
+            const match = items.find((c: any) => c.name.toLowerCase() === name.toLowerCase());
+            if (match) categoryIds.push(match.id);
+          }
+        }
+      }
+    } catch (e) {
+      console.error("Erro ao resolver categoria: " + name, e);
+    }
+  }
+
+  // Resolve Tags
+  for (const rawName of tagNames) {
+    const name = rawName.trim();
+    if (!name) continue;
+    try {
+      const res = await fetch(`${wpUrl}/wp-json/wp/v2/tags`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Basic ${creds}` },
+        body: JSON.stringify({ name })
+      });
+      if (res.ok) {
+        const d = await res.json();
+        tagIds.push(d.id);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        if (err.code === "term_exists" && err.data?.term_id) {
+          tagIds.push(err.data.term_id);
+        } else {
+          // Search fallback
+          const searchRes = await fetch(`${wpUrl}/wp-json/wp/v2/tags?search=${encodeURIComponent(name)}`, {
+            headers: { Authorization: `Basic ${creds}` }
+          });
+          if (searchRes.ok) {
+            const items = await searchRes.json();
+            const match = items.find((t: any) => t.name.toLowerCase() === name.toLowerCase());
+            if (match) tagIds.push(match.id);
+          }
+        }
+      }
+    } catch (e) {
+      console.error("Erro ao resolver tag: " + name, e);
+    }
+  }
+
+  return { categoryIds, tagIds };
+}
+
 // ─── AI Callers ──────────────────────────────────────────────────────────────
 
 async function callGPT(prompt: string): Promise<string> {
@@ -421,6 +498,8 @@ export default function GeradorWP() {
           status: hasContent ? "pronto" as const : "aguardando" as const,
           content: saved?.content || a.content || "",
           categories: saved?.categories || clientWPConfig.defaultCats,
+          tags: saved?.tags,
+          suggestedCats: saved?.suggestedCats,
           wpId: saved?.wpId,
           wpLink: saved?.wpLink || a.published_url || undefined,
         };
@@ -714,14 +793,30 @@ Retorne APENAS o HTML do conteúdo, sem explicações ou markdown.`;
 
       // Suggest categories with AI
       let categories = wpConfig.defaultCats;
-      if (wpCategories.length && wpConfig.aiSuggestCats && content) {
+      let suggestedCats: string[] = [];
+      let suggestedTags: string[] = [];
+
+      if (content && section === "artigos") {
         try {
-          const catList = wpCategories.map(c => `${c.id}:${c.name}`).join(", ");
-          const catPrompt = `Dado o título: "${item.title}"\nCategorias WP disponíveis: ${catList}\nRetorne APENAS os IDs mais relevantes (máximo 3), separados por vírgula. Apenas números.`;
-          const raw = await callAI(catPrompt);
-          const ids = raw.match(/\d+/g)?.map(Number).slice(0, 3) || [];
-          if (ids.length) categories = ids;
-        } catch { /* keep defaults */ }
+          const taxPrompt = `Com base no título: "${item.title}" e palavra-chave: "${item.keyword || ""}".\nSugira até 2 categorias apropriadas e de 3 a 5 tags (etiquetas/palavras-chave curtas em minúsculas) para este artigo.\n\nResponda APENAS com um objeto JSON válido no formato:\n{\n  "categories": ["Nome da Categoria 1", "Nome da Categoria 2"],\n  "tags": ["tag 1", "tag 2", "tag 3"]\n}`;
+          const rawTax = await callAI(taxPrompt);
+          const cleanJson = rawTax.substring(rawTax.indexOf("{"), rawTax.lastIndexOf("}") + 1);
+          const parsed = JSON.parse(cleanJson);
+          if (Array.isArray(parsed.categories)) suggestedCats = parsed.categories.map((c: any) => String(c).trim()).filter(Boolean);
+          if (Array.isArray(parsed.tags)) suggestedTags = parsed.tags.map((t: any) => String(t).trim()).filter(Boolean);
+        } catch (e) {
+          console.error("Erro gerando taxonomia com IA", e);
+        }
+
+        if (wpCategories.length && wpConfig.aiSuggestCats) {
+          try {
+            const catList = wpCategories.map(c => `${c.id}:${c.name}`).join(", ");
+            const catPrompt = `Dado o título: "${item.title}"\nCategorias WP disponíveis: ${catList}\nRetorne APENAS os IDs mais relevantes (máximo 3), separados por vírgula. Apenas números.`;
+            const raw = await callAI(catPrompt);
+            const ids = raw.match(/\d+/g)?.map(Number).slice(0, 3) || [];
+            if (ids.length) categories = ids;
+          } catch { /* keep defaults */ }
+        }
       }
 
       // Update blog_article content in Supabase if linked
@@ -731,7 +826,7 @@ Retorne APENAS o HTML do conteúdo, sem explicações ou markdown.`;
 
       setQueues(prev => ({
         ...prev,
-        [section]: prev[section].map(i => i.id === itemId ? { ...i, status: "pronto", content, categories } : i)
+        [section]: prev[section].map(i => i.id === itemId ? { ...i, status: "pronto", content, categories, tags: suggestedTags, suggestedCats } : i)
       }));
     } catch (e: any) {
       setQueues(prev => ({
@@ -781,14 +876,30 @@ Retorne APENAS o HTML do conteúdo, sem explicações ou markdown.`;
 
       // Suggest categories
       let categories = wpConfig.defaultCats;
-      if (wpCategories.length && wpConfig.aiSuggestCats && content) {
+      let suggestedCats: string[] = [];
+      let suggestedTags: string[] = [];
+
+      if (content && section === "artigos") {
         try {
-          const catList = wpCategories.map(c => `${c.id}:${c.name}`).join(", ");
-          const catPrompt = `Dado o título: "${item.title}"\nCategorias WP disponíveis: ${catList}\nRetorne APENAS os IDs mais relevantes (máximo 3), separados por vírgula. Apenas números.`;
-          const raw = await callAI(catPrompt);
-          const ids = raw.match(/\d+/g)?.map(Number).slice(0, 3) || [];
-          if (ids.length) categories = ids;
-        } catch { /* keep defaults */ }
+          const taxPrompt = `Com base no título: "${item.title}" e palavra-chave: "${item.keyword || ""}".\nSugira até 2 categorias apropriadas e de 3 a 5 tags (etiquetas/palavras-chave curtas em minúsculas) para este artigo.\n\nResponda APENAS com um objeto JSON válido no formato:\n{\n  "categories": ["Nome da Categoria 1", "Nome da Categoria 2"],\n  "tags": ["tag 1", "tag 2", "tag 3"]\n}`;
+          const rawTax = await callAI(taxPrompt);
+          const cleanJson = rawTax.substring(rawTax.indexOf("{"), rawTax.lastIndexOf("}") + 1);
+          const parsed = JSON.parse(cleanJson);
+          if (Array.isArray(parsed.categories)) suggestedCats = parsed.categories.map((c: any) => String(c).trim()).filter(Boolean);
+          if (Array.isArray(parsed.tags)) suggestedTags = parsed.tags.map((t: any) => String(t).trim()).filter(Boolean);
+        } catch (e) {
+          console.error("Erro gerando taxonomia com IA", e);
+        }
+
+        if (wpCategories.length && wpConfig.aiSuggestCats) {
+          try {
+            const catList = wpCategories.map(c => `${c.id}:${c.name}`).join(", ");
+            const catPrompt = `Dado o título: "${item.title}"\nCategorias WP disponíveis: ${catList}\nRetorne APENAS os IDs mais relevantes (máximo 3), separados por vírgula. Apenas números.`;
+            const raw = await callAI(catPrompt);
+            const ids = raw.match(/\d+/g)?.map(Number).slice(0, 3) || [];
+            if (ids.length) categories = ids;
+          } catch { /* keep defaults */ }
+        }
       }
 
       // Save content to blog_articles if linked
@@ -799,7 +910,7 @@ Retorne APENAS o HTML do conteúdo, sem explicações ou markdown.`;
       // Mark as ready in queue
       setQueues(prev => ({
         ...prev,
-        [section]: prev[section].map(i => i.id === itemId ? { ...i, status: "pronto", content, categories } : i)
+        [section]: prev[section].map(i => i.id === itemId ? { ...i, status: "pronto", content, categories, tags: suggestedTags, suggestedCats } : i)
       }));
       setGenerating(null);
 
@@ -809,7 +920,14 @@ Retorne APENAS o HTML do conteúdo, sem explicações ou markdown.`;
       const creds = btoa(`${wpUser}:${wpPass}`);
       const postType = section === "artigos" ? "posts" : "pages";
       const body: any = { title: item.title, content, status: wpStatus || "draft" };
-      if (section === "artigos" && categories.length) body.categories = categories;
+
+      if (section === "artigos") {
+        setPublishLog(l => [...l, { text: `🏷️ Verificando e criando categorias/tags no WordPress...`, type: "info" }]);
+        const resolved = await resolveTaxonomies(wpUrl, creds, suggestedCats, suggestedTags);
+        const finalCategories = Array.from(new Set([...categories, ...resolved.categoryIds]));
+        if (finalCategories.length) body.categories = finalCategories;
+        if (resolved.tagIds.length) body.tags = resolved.tagIds;
+      }
 
       const res = await fetch(`${wpUrl}/wp-json/wp/v2/${postType}`, {
         method: "POST",
@@ -931,8 +1049,14 @@ Retorne APENAS o HTML do conteúdo, sem explicações ou markdown.`;
     const creds = btoa(`${wpUser}:${wpPass}`);
     const postType = section === "artigos" ? "posts" : "pages";
     const body: any = { title: item.title, content: item.content, status: wpStatus || "draft" };
-    if (section === "artigos" && item.categories.length) body.categories = item.categories;
     try {
+      if (section === "artigos") {
+        setPublishLog(l => [...l, { text: `🏷️ Verificando e criando categorias/tags no WordPress...`, type: "info" }]);
+        const resolved = await resolveTaxonomies(wpUrl, creds, item.suggestedCats || [], item.tags || []);
+        const finalCategories = Array.from(new Set([...item.categories, ...resolved.categoryIds]));
+        if (finalCategories.length) body.categories = finalCategories;
+        if (resolved.tagIds.length) body.tags = resolved.tagIds;
+      }
       const res = await fetch(`${wpUrl}/wp-json/wp/v2/${postType}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Basic ${creds}` },
@@ -1571,8 +1695,25 @@ function QueueCard({ item, categories, isGenerating, onTitleChange, onGenerate, 
 
             {/* Categories */}
             {catNames.length > 0 && (
-              <div className="flex flex-wrap gap-1">
+              <div className="flex flex-wrap gap-1 items-center">
+                <span className="text-[10px] text-muted-foreground mr-1">Categorias:</span>
                 {catNames.map(n => <span key={n} className="text-[10px] bg-secondary px-1.5 py-0.5 rounded">{n}</span>)}
+              </div>
+            )}
+
+            {/* Suggested Categories */}
+            {!item.wpLink && item.suggestedCats && item.suggestedCats.length > 0 && (
+              <div className="flex flex-wrap gap-1 items-center">
+                <span className="text-[10px] text-muted-foreground mr-1">Criará Categorias:</span>
+                {item.suggestedCats.map(n => <span key={n} className="text-[10px] bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 border border-indigo-200 dark:border-indigo-900/50 px-1.5 py-0.5 rounded">{n}</span>)}
+              </div>
+            )}
+
+            {/* Suggested Tags */}
+            {item.tags && item.tags.length > 0 && (
+              <div className="flex flex-wrap gap-1 items-center">
+                <span className="text-[10px] text-muted-foreground mr-1">Tags:</span>
+                {item.tags.map(n => <span key={n} className="text-[10px] bg-violet-50 dark:bg-violet-950/40 text-violet-600 border border-violet-200 dark:border-violet-900/50 px-1.5 py-0.5 rounded">#{n}</span>)}
               </div>
             )}
 
