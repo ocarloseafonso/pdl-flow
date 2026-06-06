@@ -18,7 +18,7 @@ import type { BlogArticle, Client, BriefingData } from "@/lib/types";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type Section = "artigos" | "servicos" | "sobre" | "extras";
+type Section = "artigos" | "servicos" | "sobre" | "extras" | "gmb";
 
 interface QueueItem {
   id: string;
@@ -36,6 +36,7 @@ interface QueueItem {
   wpLink?: string;
   // For artigos: linked to blog_articles row
   articleId?: string;
+  imagePrompt?: string;
 }
 
 interface WPCategory { id: number; name: string; count: number; }
@@ -44,6 +45,7 @@ interface WPConfig {
   wpUrl: string; wpUser: string; wpPass: string; wpStatus: string;
   genImage: boolean; aiSuggestCats: boolean; defaultCats: number[];
   rulesArtigos: string; rulesServicos: string; rulesSobre: string; rulesExtras: string;
+  rulesGmb?: string;
 }
 
 interface ClientRow {
@@ -59,19 +61,77 @@ interface EstrategiaData {
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const WP_CONFIG_KEY = "pdl_wpforge_config";
+// ─── SEO PRO: System Prompt completo injetado em toda geração ────────────────
+const SEO_SYSTEM_PROMPT = `Você é um Estrategista Sênior de SEO, Copywriter Humano e Especialista em Otimização para AI Overviews (Google SGE) de 2026. Sua missão é criar conteúdo 100% indetectável como IA, altamente valorizado pelo Google (E-E-A-T) e visualmente agradável para o leitor.
+
+🚫 PROTOCOLO ANTI-IA (REGRAS ABSOLUTAS — SE USAR, A RESPOSTA É CONSIDERADA FALHA):
+- PROIBIDO estruturas de contraste forçado: "Não se trata apenas de X, mas sim de Y" ou "Muitos pensam que X, porém Y".
+- PROIBIDO travessões (—) usados para pausas dramáticas no meio da frase.
+- PROIBIDO clichês de abertura: "Nos dias de hoje", "Em um mundo cada vez mais", "É importante notar que".
+- PROIBIDO clichês de fechamento: "Em conclusão", "Por fim", "Resumindo", "Em suma".
+- PROIBIDO palavras-chave de IA: "Desvendar", "Alavancar", "Mergulhar", "Tapeçaria", "Sinfonia", "Crucial" (use "essencial" ou "fundamental" com moderação).
+- PROIBIDO iniciar 2 ou mais parágrafos consecutivos com conectivos (ex: "Além disso", "Portanto", "Nesse sentido", "Vale ressaltar").
+
+✅ PROTOCOLO DE ESTILO HUMANO (OBRIGATÓRIO):
+- Varie o ritmo: intercale frases curtas e de impacto com frases explicativas mais longas.
+- Use voz ativa sempre que possível ("Nós resolvemos" em vez de "Foi resolvido por nós").
+- Faça perguntas retóricas ao leitor para gerar engajamento.
+- Use analogias do mundo real para explicar conceitos técnicos.
+- Mantenha tom informal, próximo e "resolvedor de problemas", mas com autoridade.
+
+✅ OTIMIZAÇÃO PARA AI OVERVIEWS (OBRIGATÓRIO):
+- Após cada H2, escreva um parágrafo de resposta direta com 40-60 palavras (snapshot ideal para IA do Google).
+- Use estrutura H1 > H2 > H3 sem pular níveis.
+- Palavra-chave principal deve aparecer no H1 e no primeiro parágrafo.
+
+✅ FORMATO HTML SEMÂNTICO (OBRIGATÓRIO):
+- Use <h1> apenas para o título principal.
+- Use <h2> para tópicos principais e <h3> para subtópicos.
+- Use <p> para parágrafos curtos (máximo 3-4 linhas no desktop).
+- Use <strong> para destacar conceitos-chave (máximo 2-3 por parágrafo).
+- Use <ul> ou <ol> para listas sempre que houver 3 ou mais itens.
+- Use <blockquote> para dicas de ouro, depoimentos ou citações.
+- NÃO inclua tags html, head, body ou style. Entregue APENAS o conteúdo interno.
+- Se for nicho YMYL (Saúde, Direito, Finanças), inclua nota informativa no final.
+- A conclusão DEVE ser uma CTA (Chamada para Ação) natural que mencione o cliente e a cidade.`;
+
 const DEFAULT_RULES: Record<Section, string> = {
-  artigos: "Formato HTML completo (sem <html>/<head>/<body>). Use H2 e H3, parágrafos, listas. SEO otimizado com a palavra-chave no título, primeiro parágrafo e ao longo do texto. Português do Brasil. Entre 2500 e 3000 palavras.",
-  servicos: "Formato HTML. Descreva o serviço em detalhes, benefícios, como funciona, para quem é indicado, diferenciais e CTA para contato. Tom profissional. Português do Brasil.",
-  sobre: "Formato HTML. Apresente a empresa/profissional com história, missão, valores e credenciais. Tom humanizado e próximo. Português do Brasil.",
-  extras: "Formato HTML. Crie uma página otimizada para SEO local, focada na localidade/bairro/região/tema específico. Mencione os serviços disponíveis na região, vantagens do atendimento local, diferenciais da empresa e inclua CTA para contato. Tom profissional e localizado. Português do Brasil. Entre 800 e 1500 palavras.",
+  artigos: "Artigo de blog SEO completo. Entre 1.200 e 1.800 palavras. Inclua seção de FAQ (3 a 5 perguntas) ao final. Mencione o nome da empresa e a cidade naturalmente ao longo do texto. Use pelo menos: 1 lista <ul>/<ol>, 1 <blockquote> e negritos <strong>.",
+  servicos: "Página de serviço otimizada. Entre 600 e 900 palavras. Descreva o serviço, benefícios reais, como funciona, para quem é indicado, diferenciais do cliente e CTA para contato. Inclua pelo menos 1 lista e 1 blockquote com dica ou depoimento.",
+  sobre: "Página Sobre humanizada. Entre 500 e 800 palavras. Apresente a empresa/profissional com história real (use a bio do briefing), missão, valores, credenciais e equipe. Tom próximo, na primeira pessoa quando possível. Termine com CTA suave para contato.",
+  extras: "Página SEO local otimizada. Entre 800 e 1.200 palavras. Foque na localidade/bairro/região/tema. Mencione os serviços disponíveis na região, vantagens do atendimento local, diferenciais reais da empresa. Inclua FAQ de 3 perguntas locais e CTA para contato.",
+  gmb: "Post persuasivo para Google Meu Negócio (GMB). Entre 100 e 200 palavras. Inclua uma chamada para ação (CTA) clara com contato ou WhatsApp, use emojis relevantes de forma natural, utilize palavras-chave locais e mencione o nome do negócio. Além disso, forneça um prompt de imagem detalhado em inglês para gerador de imagens por IA (Midjourney/DALL-E) ideal para ilustrar este post.",
 };
 
 function loadWPConfig(): WPConfig {
   try {
     const raw = localStorage.getItem(WP_CONFIG_KEY);
-    if (raw) return { ...{ genImage: false, aiSuggestCats: true, defaultCats: [], ...DEFAULT_RULES }, ...JSON.parse(raw) };
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return {
+        wpUrl: parsed.wpUrl || "",
+        wpUser: parsed.wpUser || "",
+        wpPass: parsed.wpPass || "",
+        wpStatus: parsed.wpStatus || "draft",
+        genImage: parsed.genImage ?? false,
+        aiSuggestCats: parsed.aiSuggestCats ?? true,
+        defaultCats: parsed.defaultCats || [],
+        rulesArtigos: parsed.rulesArtigos || DEFAULT_RULES.artigos,
+        rulesServicos: parsed.rulesServicos || DEFAULT_RULES.servicos,
+        rulesSobre: parsed.rulesSobre || DEFAULT_RULES.sobre,
+        rulesExtras: parsed.rulesExtras || DEFAULT_RULES.extras,
+        rulesGmb: parsed.rulesGmb || DEFAULT_RULES.gmb,
+      };
+    }
   } catch { /* */ }
-  return { wpUrl: "", wpUser: "", wpPass: "", wpStatus: "draft", genImage: false, aiSuggestCats: true, defaultCats: [], rulesArtigos: DEFAULT_RULES.artigos, rulesServicos: DEFAULT_RULES.servicos, rulesSobre: DEFAULT_RULES.sobre, rulesExtras: DEFAULT_RULES.extras };
+  return {
+    wpUrl: "", wpUser: "", wpPass: "", wpStatus: "draft", genImage: false, aiSuggestCats: true, defaultCats: [],
+    rulesArtigos: DEFAULT_RULES.artigos,
+    rulesServicos: DEFAULT_RULES.servicos,
+    rulesSobre: DEFAULT_RULES.sobre,
+    rulesExtras: DEFAULT_RULES.extras,
+    rulesGmb: DEFAULT_RULES.gmb,
+  };
 }
 
 function loadWPConfigForClient(c: ClientRow): WPConfig {
@@ -85,6 +145,7 @@ function loadWPConfigForClient(c: ClientRow): WPConfig {
       rulesServicos: DEFAULT_RULES.servicos,
       rulesSobre: DEFAULT_RULES.sobre,
       rulesExtras: DEFAULT_RULES.extras,
+      rulesGmb: DEFAULT_RULES.gmb,
       ...b.wp_config,
     };
   }
@@ -99,13 +160,13 @@ function loadWPConfigForClient(c: ClientRow): WPConfig {
         rulesServicos: DEFAULT_RULES.servicos,
         rulesSobre: DEFAULT_RULES.sobre,
         rulesExtras: DEFAULT_RULES.extras,
+        rulesGmb: DEFAULT_RULES.gmb,
         ...JSON.parse(raw),
       };
     }
   } catch { /* */ }
 
   // 3. Nenhuma config encontrada: retorna em branco para este cliente
-  // (NUNCA herda credenciais de outro cliente via config global)
   return {
     wpUrl: c.site_url ? c.site_url.replace(/\/$/, "") : "",
     wpUser: "",
@@ -118,6 +179,7 @@ function loadWPConfigForClient(c: ClientRow): WPConfig {
     rulesServicos: DEFAULT_RULES.servicos,
     rulesSobre: DEFAULT_RULES.sobre,
     rulesExtras: DEFAULT_RULES.extras,
+    rulesGmb: DEFAULT_RULES.gmb,
   };
 }
 
@@ -400,7 +462,7 @@ export default function GeradorWP() {
   const [analyzingStrategy, setAnalyzingStrategy] = useState(false);
   const [analyzeLog, setAnalyzeLog] = useState<string[]>([]);
 
-  const [queues, setQueues] = useState<Record<Section, QueueItem[]>>({ artigos: [], servicos: [], sobre: [], extras: [] });
+  const [queues, setQueues] = useState<Record<Section, QueueItem[]>>({ artigos: [], servicos: [], sobre: [], extras: [], gmb: [] });
   // Refs for persistence
   const selectedClientRef = useRef<ClientRow | null>(null);
   const isSavingEnabled = useRef(false);
@@ -413,6 +475,7 @@ export default function GeradorWP() {
 
   const [editItem, setEditItem] = useState<{ section: Section; id: string } | null>(null);
   const [editContent, setEditContent] = useState("");
+  const [editImagePrompt, setEditImagePrompt] = useState("");
 
   const [estrategiaExpanded, setEstrategiaExpanded] = useState(false);
 
@@ -454,7 +517,7 @@ export default function GeradorWP() {
     isSavingEnabled.current = false; // Disable auto-save while loading
     setSelectedClient(c);
     selectedClientRef.current = c;
-    setQueues({ artigos: [], servicos: [], sobre: [], extras: [] });
+    setQueues({ artigos: [], servicos: [], sobre: [], extras: [], gmb: [] });
 
     // Parse strategy from notes
     const est = parseEstrategia(c.notes);
@@ -525,6 +588,7 @@ export default function GeradorWP() {
     let servicoItems: QueueItem[];
     let sobreItems: QueueItem[];
     let extrasItems: QueueItem[];
+    let gmbItems: QueueItem[] = [];
     if (savedQueues) {
       servicoItems = savedQueues.servicos?.length
         ? savedQueues.servicos.map(q => ({ ...q, status: cleanStatus(q.status) }))
@@ -533,13 +597,15 @@ export default function GeradorWP() {
         ? savedQueues.sobre.map(q => ({ ...q, status: cleanStatus(q.status) }))
         : fallbackSobre;
       extrasItems = (savedQueues.extras || []).map(q => ({ ...q, status: cleanStatus(q.status) }));
+      gmbItems = (savedQueues.gmb || []).map(q => ({ ...q, status: cleanStatus(q.status) }));
     } else {
       servicoItems = fallbackServicos;
       sobreItems = fallbackSobre;
       extrasItems = [];
+      gmbItems = [];
     }
 
-    setQueues({ artigos: artigoItems, servicos: servicoItems, sobre: sobreItems, extras: extrasItems });
+    setQueues({ artigos: artigoItems, servicos: servicoItems, sobre: sobreItems, extras: extrasItems, gmb: gmbItems });
     setLoadingClient(false);
     isSavingEnabled.current = true; // Re-enable auto-save after loading complete
     const restoredMsg = savedQueues ? " (progresso restaurado ✓)" : "";
@@ -628,7 +694,7 @@ export default function GeradorWP() {
       // 4. Ask AI to extract structured content plan
       const analysisPrompt = `Você é um estrategista de conteúdo digital especialista em SEO Local para pequenas empresas brasileiras.
 
-Analise TODOS os dados abaixo sobre a cliente e retorne um JSON estruturado com o plano de conteúdo WordPress.
+Analise TODOS os dados abaixo sobre a cliente e retorne um JSON estruturado com o plano de conteúdo.
 
 ${fullContext}
 
@@ -649,6 +715,10 @@ Baseado em TUDO que você leu acima, retorne APENAS um JSON válido neste format
     { "titulo": "Título da Página Extra 1 (ex: Manicure no Bairro X)", "tipo": "bairro|região|tema", "keyword": "keyword seo local" },
     { "titulo": "Título da Página Extra 2", "tipo": "bairro|região|tema", "keyword": "keyword seo local" }
   ],
+  "gmb": [
+    { "titulo": "Sugestão de Post GMB 1", "tipo": "novidade|oferta|evento|produto" },
+    { "titulo": "Sugestão de Post GMB 2", "tipo": "novidade|oferta|evento|produto" }
+  ],
   "resumo": "Breve resumo em 2 frases do que foi identificado na estratégia da cliente."
 }
 
@@ -656,7 +726,8 @@ REGRAS:
 - Artigos: extraia todos os títulos que constam na pauta/estratégia. Se não houver pauta explícita, sugira de 6 a 9 artigos baseados no segmento e palavras-chave identificadas.
 - Serviços: extraia todos os serviços/produtos mencionados. Cada serviço vira uma página separada.
 - Sobre: sempre inclua 1 página "Sobre" com o nome da empresa.
-- Páginas Extras: MUITO IMPORTANTE — extraia TODAS as páginas adicionais mencionadas na estratégia, como páginas por bairro, região, cidade vizinha, ou temáticas específicas (ex: "Depilação no Bairro X", "Advogada em Y", "Serviço Z para [perfil]"). Se não houver páginas extras na estratégia, retorne um array vazio [].
+- Páginas Extras: MUITO IMPORTANTE — extraia TODAS as páginas adicionais mencionadas na estratégia, como páginas por bairro, região, cidade vizinha, ou temáticas específicas.
+- GMB: extraia todas as sugestões de postagens para o GMB/Google Meu Negócio mencionadas na estratégia. Se não houver, crie de 3 a 5 ideias de posts GMB altamente relevantes.
 - Use dados REAIS da cliente. Não seja genérico.
 - Retorne APENAS o JSON, sem nenhum texto antes ou depois.`;
 
@@ -665,7 +736,6 @@ REGRAS:
       // 5. Parse JSON response
       let parsed: any;
       try {
-        // Strip any markdown code fences if present
         const clean = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
         parsed = JSON.parse(clean);
       } catch {
@@ -712,6 +782,15 @@ REGRAS:
         categories: wpConfig.defaultCats,
       }));
 
+      const gmbItems: QueueItem[] = (parsed.gmb || []).map((g: any) => ({
+        id: uid(),
+        title: g.titulo || g.title || "Sem título",
+        intent: g.tipo || null,
+        status: "aguardando" as const,
+        content: "",
+        categories: wpConfig.defaultCats,
+      }));
+
       // 7. If AI found artigos and blog_articles table is empty, save them
       if (artigoItems.length > 0 && (!existingArticles || existingArticles.length === 0)) {
         const inserts = artigoItems.map((item, idx) => ({
@@ -724,7 +803,6 @@ REGRAS:
           status: "todo" as const,
         }));
         const { data: saved } = await supabase.from("blog_articles").insert(inserts).select();
-        // Link articleIds
         if (saved) {
           saved.forEach((row: any, idx: number) => {
             if (artigoItems[idx]) artigoItems[idx].articleId = row.id;
@@ -733,7 +811,7 @@ REGRAS:
         setAnalyzeLog(l => [...l, `✓ ${artigoItems.length} artigos salvos na pauta do cliente.`]);
       }
 
-      setQueues({ artigos: artigoItems, servicos: servicoItems, sobre: sobreItems, extras: extrasItems });
+      setQueues({ artigos: artigoItems, servicos: servicoItems, sobre: sobreItems, extras: extrasItems, gmb: gmbItems });
       setEstrategia(est);
 
       setAnalyzeLog(l => [...l,
@@ -741,11 +819,10 @@ REGRAS:
         `✓ ${servicoItems.length} serviço(s) identificado(s).`,
         `✓ ${sobreItems.length} página(s) Sobre identificada(s).`,
         `✓ ${extrasItems.length} página(s) extra(s) identificada(s).`,
+        `✓ ${gmbItems.length} post(s) GMB identificado(s).`,
         "🎉 Pronto! Revise os títulos e clique em Gerar."
       ]);
-
-      toast.success(`Estratégia analisada! ${artigoItems.length} artigos, ${servicoItems.length} serviços, ${extrasItems.length} páginas extras identificados.`);
-
+      toast.success(`Estratégia analisada! ${artigoItems.length} artigos, ${servicoItems.length} serviços, ${gmbItems.length} posts GMB identificados.`);
     } catch (e: any) {
       setAnalyzeLog(l => [...l, `⚠️ Erro: ${e.message}`]);
       toast.error("Erro na análise: " + e.message);
@@ -766,27 +843,91 @@ REGRAS:
     setQueues(prev => ({ ...prev, [section]: prev[section].map(i => i.id === itemId ? { ...i, status: "gerando" } : i) }));
 
     const ctx = buildClientContext(selectedClient, estrategia);
-    const rules = section === "artigos" ? wpConfig.rulesArtigos : section === "servicos" ? wpConfig.rulesServicos : section === "sobre" ? wpConfig.rulesSobre : wpConfig.rulesExtras;
-    const sectionLabel = section === "artigos" ? "artigo de blog SEO" : section === "servicos" ? "página de serviço" : section === "sobre" ? "página Sobre" : "página extra (localidade/bairro/região/tema)";
+    const rules = section === "artigos" ? wpConfig.rulesArtigos 
+                : section === "servicos" ? wpConfig.rulesServicos 
+                : section === "sobre" ? wpConfig.rulesSobre 
+                : section === "extras" ? wpConfig.rulesExtras 
+                : wpConfig.rulesGmb || DEFAULT_RULES.gmb;
+    const sectionLabel = section === "artigos" ? "artigo de blog SEO" 
+                       : section === "servicos" ? "página de serviço" 
+                       : section === "sobre" ? "página Sobre" 
+                       : section === "extras" ? "página extra (localidade/bairro/região/tema)"
+                       : "post para Google Meu Negócio (GMB)";
 
     const keywordLine = item.keyword ? `\nPALAVRA-CHAVE PRINCIPAL: "${item.keyword}"` : "";
     const intentLine = item.intent ? `\nINTENÇÃO DE BUSCA: ${item.intent}` : "";
     const formatLine = item.format ? `\nFORMATO: ${item.format}` : "";
 
-    const prompt = `Você é um redator especialista em SEO Local e marketing digital para pequenas empresas brasileiras.
+    if (section === "gmb") {
+      const gmbPrompt = `Você é um copywriter especialista em SEO local e Google Meu Negócio.
+Com base nas informações do cliente e no tema fornecido, crie um post otimizado para o Google Meu Negócio (GMB) e um prompt para gerar a imagem correspondente com IA.
 
-CONTEXTO DO CLIENTE:
+════════════════════════════════════════
+CONTEXTO COMPLETO DO CLIENTE:
 ${ctx}
+════════════════════════════════════════
 
-TAREFA: Gere o conteúdo completo para o seguinte ${sectionLabel}:
-TÍTULO: "${item.title}"${keywordLine}${intentLine}${formatLine}
+TEMA/TÍTULO DO POST: "${item.title}"${keywordLine}${intentLine}${formatLine}
 
-REGRAS DE FORMATAÇÃO:
+REGRAS ESPECÍFICAS:
 ${rules}
 
-IMPORTANTE: Use os dados reais do cliente acima. Mencione o nome da empresa, cidade, serviços específicos e diferenciais reais. Não seja genérico.
+Retorne APENAS um JSON válido no formato exato abaixo (sem markdown, sem explicações):
+{
+  "post_text": "Texto completo do post para o GMB, com emojis e CTA de contato/agendamento.",
+  "image_prompt": "Prompt em inglês para gerador de imagens IA (DALL-E/Midjourney/Canva AI) detalhado, fotorrealista e profissional para ilustrar o post."
+}
+`;
+      try {
+        const raw = await callAI(gmbPrompt);
+        let parsed: any;
+        try {
+          const cleanJson = raw.substring(raw.indexOf("{"), raw.lastIndexOf("}") + 1);
+          parsed = JSON.parse(cleanJson);
+        } catch {
+          parsed = {
+            post_text: raw,
+            image_prompt: `A professional image depicting ${item.title}`
+          };
+        }
 
-Retorne APENAS o HTML do conteúdo, sem explicações ou markdown.`;
+        const content = parsed.post_text || "";
+        const imagePrompt = parsed.image_prompt || "";
+
+        setQueues(prev => ({
+          ...prev,
+          gmb: prev.gmb.map(i => i.id === itemId ? { ...i, status: "pronto", content, imagePrompt } : i)
+        }));
+      } catch (e: any) {
+        setQueues(prev => ({
+          ...prev,
+          gmb: prev.gmb.map(i => i.id === itemId ? { ...i, status: "erro", error: e.message } : i)
+        }));
+        toast.error(e.message);
+      }
+      setGenerating(null);
+      return;
+    }
+
+    const prompt = `${SEO_SYSTEM_PROMPT}
+
+════════════════════════════════════════
+CONTEXTO COMPLETO DO CLIENTE:
+${ctx}
+════════════════════════════════════════
+
+TAREFA: Escreva o conteúdo completo para o seguinte ${sectionLabel}:
+TÍTULO: "${item.title}"${keywordLine}${intentLine}${formatLine}
+
+REGRAS ESPECÍFICAS DESTA SEÇÃO:
+${rules}
+
+INSTRUÇÕES FINAIS:
+- Use os dados REAIS do cliente acima. Nunca seja genérico.
+- Mencione o nome da empresa e a cidade naturalmente.
+- Aplique RIGOROSAMENTE o Protocolo Anti-IA e o Estilo Humano.
+- Retorne APENAS o HTML semântico, sem markdown, sem blocos de código, sem texto antes ou depois.
+- Comece diretamente com <h1>.`;
 
     try {
       const content = await callAI(prompt);
@@ -869,7 +1010,7 @@ Retorne APENAS o HTML do conteúdo, sem explicações ou markdown.`;
     const keywordLine = item.keyword ? `\nPALAVRA-CHAVE PRINCIPAL: "${item.keyword}"` : "";
     const intentLine = item.intent ? `\nINTENÇÃO DE BUSCA: ${item.intent}` : "";
     const formatLine = item.format ? `\nFORMATO: ${item.format}` : "";
-    const prompt = `Você é um redator especialista em SEO Local e marketing digital para pequenas empresas brasileiras.\n\nCONTEXTO DO CLIENTE:\n${ctx}\n\nTAREFA: Gere o conteúdo completo para o seguinte ${sectionLabel}:\nTÍTULO: "${item.title}"${keywordLine}${intentLine}${formatLine}\n\nREGRAS DE FORMATAÇÃO:\n${rules}\n\nIMPORTANTE: Use os dados reais do cliente acima. Mencione o nome da empresa, cidade, serviços específicos e diferenciais reais. Não seja genérico.\n\nRetorne APENAS o HTML do conteúdo, sem explicações ou markdown.`;
+    const prompt = `${SEO_SYSTEM_PROMPT}\n\n════════════════════════════════════════\nCONTEXTO COMPLETO DO CLIENTE:\n${ctx}\n════════════════════════════════════════\n\nTAREFA: Escreva o conteúdo completo para o seguinte ${sectionLabel}:\nTÍTULO: "${item.title}"${keywordLine}${intentLine}${formatLine}\n\nREGRAS ESPECÍFICAS DESTA SEÇÃO:\n${rules}\n\nINSTRUÇÕES FINAIS:\n- Use os dados REAIS do cliente acima. Nunca seja genérico.\n- Mencione o nome da empresa e a cidade naturalmente.\n- Aplique RIGOROSAMENTE o Protocolo Anti-IA e o Estilo Humano.\n- Retorne APENAS o HTML semântico, sem markdown, sem blocos de código, sem texto antes ou depois.\n- Comece diretamente com <h1>.`;
 
     try {
       const content = await callAI(prompt);
@@ -1097,6 +1238,7 @@ Retorne APENAS o HTML do conteúdo, sem explicações ou markdown.`;
     servicos: { label: "Páginas de Serviço", icon: <Package className="h-4 w-4" />, color: "text-purple-600" },
     sobre: { label: "Página Sobre", icon: <Info className="h-4 w-4" />, color: "text-emerald-600" },
     extras: { label: "Páginas Extras", icon: <Globe className="h-4 w-4" />, color: "text-orange-600" },
+    gmb: { label: "Posts GMB", icon: <Sparkles className="h-4 w-4" />, color: "text-indigo-600" },
   };
 
   return (
@@ -1298,12 +1440,12 @@ Retorne APENAS o HTML do conteúdo, sem explicações ou markdown.`;
 
       {/* ── Stats ──────────────────────────────────────────────────────── */}
       {selectedClient && (
-        <div className="grid grid-cols-4 gap-3">
-          {(["artigos", "servicos", "sobre", "extras"] as Section[]).map(s => (
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+          {(["artigos", "servicos", "sobre", "extras", "gmb"] as Section[]).map(s => (
             <Card key={s} className="text-center py-3 cursor-pointer hover:border-primary/50 transition-colors" onClick={() => setActiveSection(s)}>
               <div className={`text-2xl font-bold ${sectionConfig[s].color}`}>{readyCount(s)}/{queues[s].length}</div>
               <div className="text-xs text-muted-foreground mt-0.5 flex items-center justify-center gap-1">
-                {sectionConfig[s].icon} {s}
+                {sectionConfig[s].icon} {s === "gmb" ? "GMB" : s}
               </div>
             </Card>
           ))}
@@ -1313,8 +1455,8 @@ Retorne APENAS o HTML do conteúdo, sem explicações ou markdown.`;
       {/* ── Content Tabs ───────────────────────────────────────────────── */}
       {selectedClient ? (
         <Tabs value={activeSection} onValueChange={v => setActiveSection(v as Section)}>
-          <TabsList className="w-full">
-            {(["artigos", "servicos", "sobre", "extras"] as Section[]).map(s => (
+          <TabsList className="w-full flex-wrap">
+            {(["artigos", "servicos", "sobre", "extras", "gmb"] as Section[]).map(s => (
               <TabsTrigger key={s} value={s} className="flex-1 gap-1.5 text-xs sm:text-sm">
                 {sectionConfig[s].icon} {sectionConfig[s].label}
                 {queues[s].length > 0 && <Badge variant="secondary" className="h-4 px-1 text-[10px]">{queues[s].length}</Badge>}
@@ -1322,7 +1464,7 @@ Retorne APENAS o HTML do conteúdo, sem explicações ou markdown.`;
             ))}
           </TabsList>
 
-          {(["artigos", "servicos", "sobre", "extras"] as Section[]).map(section => (
+          {(["artigos", "servicos", "sobre", "extras", "gmb"] as Section[]).map(section => (
             <TabsContent key={section} value={section} className="mt-4 space-y-3">
               {/* Section header */}
               <div className="flex items-center justify-between flex-wrap gap-2">
@@ -1348,6 +1490,16 @@ Retorne APENAS o HTML do conteúdo, sem explicações ou markdown.`;
                       Páginas adicionais extraídas da estratégia (bairros, regiões, temas). Edite os títulos e gere o conteúdo.
                     </p>
                   )}
+                  {section === "gmb" && queues.gmb.length === 0 && (
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Nenhuma sugestão de Post GMB encontrada. Use "Verificar cliente" para extrair sugestões da estratégia.
+                    </p>
+                  )}
+                  {section === "gmb" && queues.gmb.length > 0 && (
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Sugestões de posts para Google Meu Negócio extraídas da estratégia. Copie o texto e o prompt de imagem.
+                    </p>
+                  )}
                 </div>
                 <div className="flex gap-2 flex-wrap">
                   <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={() => addCustomItem(section)}>
@@ -1361,7 +1513,7 @@ Retorne APENAS o HTML do conteúdo, sem explicações ou markdown.`;
                   >
                     <Zap className="h-3.5 w-3.5" /> Gerar todos
                   </Button>
-                  {queues[section].some(i => i.status === "aguardando" || i.status === "erro") && wpConfig.wpUrl && wpConfig.wpUser && (
+                  {section !== "gmb" && queues[section].some(i => i.status === "aguardando" || i.status === "erro") && wpConfig.wpUrl && wpConfig.wpUser && (
                     <Button
                       size="sm"
                       variant="outline"
@@ -1373,7 +1525,7 @@ Retorne APENAS o HTML do conteúdo, sem explicações ou markdown.`;
                       <Zap className="h-3 w-3" /><Send className="h-3 w-3" /> Gerar & Publicar
                     </Button>
                   )}
-                  {readyCount(section) > 0 && (
+                  {section !== "gmb" && readyCount(section) > 0 && (
                     <Button
                       size="sm"
                       variant="outline"
@@ -1391,12 +1543,14 @@ Retorne APENAS o HTML do conteúdo, sem explicações ou markdown.`;
               {queues[section].length === 0 ? (
                 <Card className="border-dashed">
                   <CardContent className="py-10 text-center text-muted-foreground">
-                    <div className="text-4xl mb-2 opacity-30">{section === "artigos" ? "📰" : section === "servicos" ? "📦" : section === "extras" ? "🗺️" : "👤"}</div>
+                    <div className="text-4xl mb-2 opacity-30">{section === "artigos" ? "📰" : section === "servicos" ? "📦" : section === "extras" ? "🗺️" : section === "sobre" ? "👤" : "📍"}</div>
                     <p className="text-sm">
                       {section === "artigos"
                         ? "Nenhuma pauta de artigos definida para este cliente ainda."
                         : section === "servicos"
                         ? "Nenhum serviço encontrado no briefing. Adicione manualmente."
+                        : section === "gmb"
+                        ? "Nenhuma sugestão de post GMB identificada. Adicione manualmente."
                         : "Nenhum item. Adicione manualmente."}
                     </p>
                     <Button size="sm" variant="outline" className="mt-3 gap-1" onClick={() => addCustomItem(section)}>
@@ -1415,10 +1569,17 @@ Retorne APENAS o HTML do conteúdo, sem explicações ou markdown.`;
                       onTitleChange={(t) => updateTitle(section, item.id, t)}
                       onGenerate={() => generateOne(section, item.id)}
                       onRemove={() => removeItem(section, item.id)}
-                      onEdit={() => { setEditItem({ section, id: item.id }); setEditContent(item.content); }}
+                      onEdit={() => {
+                        setEditItem({ section, id: item.id });
+                        setEditContent(item.content);
+                        if (section === "gmb") {
+                          setEditImagePrompt(item.imagePrompt || "");
+                        }
+                      }}
                       onCopy={() => { navigator.clipboard.writeText(item.content); toast.success("Copiado!"); }}
-                      onPublish={() => { setPublishLog([]); publishItem(section, item); }}
-                      onGenerateAndPublish={wpConfig.wpUrl && wpConfig.wpUser ? () => { setPublishLog([]); generateAndPublishOne(section, item.id); } : undefined}
+                      onPublish={section !== "gmb" ? () => { setPublishLog([]); publishItem(section, item); } : undefined}
+                      onGenerateAndPublish={section !== "gmb" && wpConfig.wpUrl && wpConfig.wpUser ? () => { setPublishLog([]); generateAndPublishOne(section, item.id); } : undefined}
+                      isGmb={section === "gmb"}
                     />
                   ))}
                 </div>
@@ -1533,14 +1694,24 @@ Retorne APENAS o HTML do conteúdo, sem explicações ou markdown.`;
 
             <div className="space-y-3">
               <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Regras de geração por seção</Label>
-              {(["artigos", "servicos", "sobre", "extras"] as Section[]).map(s => (
+              {(["artigos", "servicos", "sobre", "extras", "gmb"] as Section[]).map(s => (
                 <div key={s} className="space-y-1">
                   <Label className="text-xs">{sectionConfig[s].label}</Label>
                   <Textarea
                     rows={2}
-                    value={s === "artigos" ? wpConfig.rulesArtigos : s === "servicos" ? wpConfig.rulesServicos : s === "sobre" ? wpConfig.rulesSobre : wpConfig.rulesExtras}
+                    value={
+                      s === "artigos" ? wpConfig.rulesArtigos 
+                      : s === "servicos" ? wpConfig.rulesServicos 
+                      : s === "sobre" ? wpConfig.rulesSobre 
+                      : s === "extras" ? wpConfig.rulesExtras 
+                      : wpConfig.rulesGmb || ""
+                    }
                     onChange={e => {
-                      const field = s === "artigos" ? "rulesArtigos" : s === "servicos" ? "rulesServicos" : s === "sobre" ? "rulesSobre" : "rulesExtras";
+                      const field = s === "artigos" ? "rulesArtigos" 
+                                  : s === "servicos" ? "rulesServicos" 
+                                  : s === "sobre" ? "rulesSobre" 
+                                  : s === "extras" ? "rulesExtras" 
+                                  : "rulesGmb";
                       setWPConfig(p => ({ ...p, [field]: e.target.value }));
                     }}
                     className="text-xs"
@@ -1594,12 +1765,33 @@ Retorne APENAS o HTML do conteúdo, sem explicações ou markdown.`;
             <div className="p-4 border-b flex items-center justify-between">
               <h2 className="font-semibold text-sm flex items-center gap-2">
                 <PenLine className="h-4 w-4 text-primary" />
-                Editar conteúdo HTML
+                {editItem.section === "gmb" ? "Editar Post GMB e Prompt de Imagem" : "Editar conteúdo HTML"}
               </h2>
               <Button variant="ghost" size="sm" onClick={() => setEditItem(null)}>✕</Button>
             </div>
-            <div className="flex-1 p-4 overflow-auto">
-              <Textarea className="min-h-[50vh] font-mono text-xs leading-relaxed" value={editContent} onChange={e => setEditContent(e.target.value)} />
+            <div className="flex-1 p-4 overflow-auto space-y-4">
+              {editItem.section === "gmb" ? (
+                <>
+                  <div className="space-y-1">
+                    <Label className="text-xs font-semibold">Texto do Post</Label>
+                    <Textarea
+                      className="min-h-[25vh] text-sm leading-relaxed"
+                      value={editContent}
+                      onChange={e => setEditContent(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs font-semibold text-indigo-600">Prompt da Imagem IA</Label>
+                    <Textarea
+                      className="min-h-[15vh] font-mono text-xs text-indigo-900 dark:text-indigo-200"
+                      value={editImagePrompt}
+                      onChange={e => setEditImagePrompt(e.target.value)}
+                    />
+                  </div>
+                </>
+              ) : (
+                <Textarea className="min-h-[50vh] font-mono text-xs leading-relaxed" value={editContent} onChange={e => setEditContent(e.target.value)} />
+              )}
             </div>
             <div className="p-4 border-t flex gap-2 justify-between items-center">
               <p className="text-xs text-muted-foreground">
@@ -1610,7 +1802,11 @@ Retorne APENAS o HTML do conteúdo, sem explicações ou markdown.`;
                 <Button onClick={() => {
                   setQueues(prev => ({
                     ...prev,
-                    [editItem.section]: prev[editItem.section].map(i => i.id === editItem.id ? { ...i, content: editContent } : i)
+                    [editItem.section]: prev[editItem.section].map(i =>
+                      i.id === editItem.id
+                        ? { ...i, content: editContent, imagePrompt: editItem.section === "gmb" ? editImagePrompt : i.imagePrompt }
+                        : i
+                    )
                   }));
                   setEditItem(null);
                   toast.success("Conteúdo salvo!");
@@ -1635,11 +1831,12 @@ interface QueueCardProps {
   onRemove: () => void;
   onEdit: () => void;
   onCopy: () => void;
-  onPublish: () => void;
+  onPublish?: () => void;
   onGenerateAndPublish?: () => void;
+  isGmb?: boolean;
 }
 
-function QueueCard({ item, categories, isGenerating, onTitleChange, onGenerate, onRemove, onEdit, onCopy, onPublish, onGenerateAndPublish }: QueueCardProps) {
+function QueueCard({ item, categories, isGenerating, onTitleChange, onGenerate, onRemove, onEdit, onCopy, onPublish, onGenerateAndPublish, isGmb }: QueueCardProps) {
   const [editingTitle, setEditingTitle] = useState(false);
   const [localTitle, setLocalTitle] = useState(item.title);
   const [expanded, setExpanded] = useState(false);
@@ -1651,7 +1848,7 @@ function QueueCard({ item, categories, isGenerating, onTitleChange, onGenerate, 
     erro: { label: "Erro", icon: <XCircle className="h-3 w-3" />, cls: "text-destructive" },
   }[item.status];
 
-  const catNames = item.categories.map(id => categories.find(c => c.id === id)?.name).filter(Boolean);
+  const catNames = item.categories ? item.categories.map(id => categories.find(c => c.id === id)?.name).filter(Boolean) : [];
 
   return (
     <Card className={`transition-all ${item.status === "pronto" ? "border-green-500/30" : item.status === "erro" ? "border-destructive/30" : item.status === "gerando" ? "border-yellow-500/30" : ""}`}>
@@ -1694,7 +1891,7 @@ function QueueCard({ item, categories, isGenerating, onTitleChange, onGenerate, 
             )}
 
             {/* Categories */}
-            {catNames.length > 0 && (
+            {!isGmb && catNames.length > 0 && (
               <div className="flex flex-wrap gap-1 items-center">
                 <span className="text-[10px] text-muted-foreground mr-1">Categorias:</span>
                 {catNames.map(n => <span key={n} className="text-[10px] bg-secondary px-1.5 py-0.5 rounded">{n}</span>)}
@@ -1702,7 +1899,7 @@ function QueueCard({ item, categories, isGenerating, onTitleChange, onGenerate, 
             )}
 
             {/* Suggested Categories */}
-            {!item.wpLink && item.suggestedCats && item.suggestedCats.length > 0 && (
+            {!isGmb && !item.wpLink && item.suggestedCats && item.suggestedCats.length > 0 && (
               <div className="flex flex-wrap gap-1 items-center">
                 <span className="text-[10px] text-muted-foreground mr-1">Criará Categorias:</span>
                 {item.suggestedCats.map(n => <span key={n} className="text-[10px] bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 border border-indigo-200 dark:border-indigo-900/50 px-1.5 py-0.5 rounded">{n}</span>)}
@@ -1710,7 +1907,7 @@ function QueueCard({ item, categories, isGenerating, onTitleChange, onGenerate, 
             )}
 
             {/* Suggested Tags */}
-            {item.tags && item.tags.length > 0 && (
+            {!isGmb && item.tags && item.tags.length > 0 && (
               <div className="flex flex-wrap gap-1 items-center">
                 <span className="text-[10px] text-muted-foreground mr-1">Tags:</span>
                 {item.tags.map(n => <span key={n} className="text-[10px] bg-violet-50 dark:bg-violet-950/40 text-violet-600 border border-violet-200 dark:border-violet-900/50 px-1.5 py-0.5 rounded">#{n}</span>)}
@@ -1718,7 +1915,7 @@ function QueueCard({ item, categories, isGenerating, onTitleChange, onGenerate, 
             )}
 
             {/* WP link */}
-            {item.wpLink && (
+            {!isGmb && item.wpLink && (
               <a href={item.wpLink} target="_blank" rel="noopener noreferrer" className="text-xs text-primary underline">
                 ✓ Publicado no WordPress ↗
               </a>
@@ -1731,10 +1928,31 @@ function QueueCard({ item, categories, isGenerating, onTitleChange, onGenerate, 
 
             {/* Preview */}
             {expanded && item.content && (
-              <div
-                className="mt-2 text-xs border rounded p-3 bg-muted/30 max-h-48 overflow-y-auto prose prose-sm max-w-none"
-                dangerouslySetInnerHTML={{ __html: item.content }}
-              />
+              isGmb ? (
+                <div className="mt-2 text-xs border rounded p-3 bg-muted/30 max-h-60 overflow-y-auto space-y-3">
+                  <div>
+                    <h4 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">Texto do Post:</h4>
+                    <div className="whitespace-pre-wrap font-sans text-sm leading-relaxed bg-background p-2.5 rounded border">
+                      {item.content}
+                    </div>
+                  </div>
+                  {item.imagePrompt && (
+                    <div>
+                      <h4 className="text-[10px] font-semibold uppercase tracking-wider text-indigo-600 mb-1 flex items-center gap-1">
+                        <Sparkles className="h-3 w-3" /> Prompt de Imagem IA:
+                      </h4>
+                      <div className="whitespace-pre-wrap font-mono text-xs bg-indigo-50/50 dark:bg-indigo-950/20 p-2.5 rounded border border-indigo-100 dark:border-indigo-900/50 text-indigo-900 dark:text-indigo-200">
+                        {item.imagePrompt}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div
+                  className="mt-2 text-xs border rounded p-3 bg-muted/30 max-h-48 overflow-y-auto prose prose-sm max-w-none"
+                  dangerouslySetInnerHTML={{ __html: item.content }}
+                />
+              )
             )}
           </div>
 
@@ -1763,13 +1981,28 @@ function QueueCard({ item, categories, isGenerating, onTitleChange, onGenerate, 
             )}
             {item.status === "pronto" && (
               <>
-                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={onEdit} title="Editar HTML">✏️</Button>
-                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={onCopy} title="Copiar HTML">
-                  <Copy className="h-3 w-3" />
-                </Button>
-                <Button size="sm" variant="outline" className="h-7 text-xs gap-1 text-green-600 border-green-500/40 hover:bg-green-50 dark:hover:bg-green-950/20" onClick={onPublish} title="Publicar no WP">
-                  <Send className="h-3 w-3" /> WP
-                </Button>
+                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={onEdit} title={isGmb ? "Editar Post/Prompt" : "Editar HTML"}>✏️</Button>
+                {isGmb ? (
+                  <>
+                    <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => { navigator.clipboard.writeText(item.content); toast.success("Texto do post copiado!"); }} title="Copiar Texto">
+                      <Copy className="h-3 w-3" /> Copiar Post
+                    </Button>
+                    <Button size="sm" variant="outline" className="h-7 text-xs gap-1 text-indigo-600 border-indigo-500/40 hover:bg-indigo-50 dark:hover:bg-indigo-950/20" onClick={() => { navigator.clipboard.writeText(item.imagePrompt || ""); toast.success("Prompt de imagem copiado!"); }} title="Copiar Prompt de Imagem">
+                      <Sparkles className="h-3 w-3" /> Prompt Imagem
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button size="sm" variant="outline" className="h-7 text-xs" onClick={onCopy} title="Copiar HTML">
+                      <Copy className="h-3 w-3" />
+                    </Button>
+                    {onPublish && (
+                      <Button size="sm" variant="outline" className="h-7 text-xs gap-1 text-green-600 border-green-500/40 hover:bg-green-50 dark:hover:bg-green-950/20" onClick={onPublish} title="Publicar no WP">
+                        <Send className="h-3 w-3" /> WP
+                      </Button>
+                    )}
+                  </>
+                )}
                 <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setExpanded(v => !v)}>
                   {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                 </Button>

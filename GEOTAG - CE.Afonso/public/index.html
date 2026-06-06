@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GBP Foto Tagger</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="container">
+      <header class="header">
+        <div>
+          <h1>GBP Foto Tagger</h1>
+          <p class="muted">Salve clientes + processe fotos em lote (renomear, metadados, relatório e .zip).</p>
+        </div>
+        <div class="health">
+          <span id="apiKeyStatus" class="pill">IA: …</span>
+        </div>
+      </header>
+
+      <section class="card">
+        <h2>1) Cliente</h2>
+        <div class="row">
+          <label class="field">
+            <span>Selecionar</span>
+            <select id="clientSelect"></select>
+          </label>
+          <button id="btnNewClient" class="btn">Novo</button>
+          <button id="btnEditClient" class="btn">Editar</button>
+          <button id="btnDeleteClient" class="btn btnDanger">Excluir</button>
+        </div>
+        <div id="clientSummary" class="summary muted"></div>
+        <div id="clientWarnings"></div>
+      </section>
+
+      <section class="card">
+        <h2>2) Fotos</h2>
+        <div class="row">
+          <label class="field grow">
+            <span>Selecionar fotos</span>
+            <input id="photosInput" type="file" multiple accept="image/*" />
+          </label>
+        </div>
+        <div id="photosList" class="list"></div>
+      </section>
+
+      <section class="card">
+        <h2>3) Regras do lote</h2>
+        <div class="grid">
+          <label class="check">
+            <input id="optAnalyzePhotos" type="checkbox" checked />
+            <span>Analisar cada foto com IA (mais demorado)</span>
+          </label>
+          <label class="check">
+            <input id="optWriteMetadata" type="checkbox" checked />
+            <span>Escrever metadados (EXIF/IPTC/XMP)</span>
+          </label>
+          <label class="check">
+            <input id="optGpsEnabled" type="checkbox" />
+            <span>Aplicar GPS do cliente nas fotos</span>
+          </label>
+        </div>
+        <label class="field">
+          <span>Instruções extras (opcional)</span>
+          <textarea id="extraInstructions" rows="3" placeholder="Ex.: priorize fotos de equipe, evite promessas, use termos simples..."></textarea>
+        </label>
+      </section>
+
+      <section class="card">
+        <h2>4) Processar</h2>
+        <div class="row">
+          <button id="btnRun" class="btn btnPrimary">Rodar em lote e baixar .zip</button>
+          <div id="runStatus" class="muted"></div>
+        </div>
+      </section>
+
+      <section class="card" id="verifyGuide">
+        <h2>🔍 Como verificar os metadados</h2>
+        <div class="verifyGrid">
+          <div class="verifyCard">
+            <div class="verifyIcon">🪟</div>
+            <h4>Windows Explorer</h4>
+            <ol>
+              <li>Clique com o botão direito na imagem</li>
+              <li>Selecione <strong>Propriedades</strong></li>
+              <li>Clique na aba <strong>Detalhes</strong></li>
+              <li>Veja: <em>Título, Marcas, Autores, Direitos autorais, Tirada em</em></li>
+            </ol>
+          </div>
+          <div class="verifyCard">
+            <div class="verifyIcon">📋</div>
+            <h4>Arquivo _audit.json</h4>
+            <ol>
+              <li>Extraia o <strong>.zip</strong> gerado</li>
+              <li>Abra o arquivo <strong>*_audit.json</strong> de cada imagem</li>
+              <li>Veja todos os metadados aplicados, o hash MD5, validações de tamanho e as sugestões de legenda para o GMB</li>
+            </ol>
+          </div>
+          <div class="verifyCard">
+            <div class="verifyIcon">🛠️</div>
+            <h4>ExifTool (avançado)</h4>
+            <ol>
+              <li>Baixe o <a href="https://exiftool.org" target="_blank" rel="noopener">ExifTool</a></li>
+              <li>Execute no terminal:<br/><code>exiftool -all nome-da-foto.png</code></li>
+              <li>Todos os campos IPTC e XMP serão listados</li>
+            </ol>
+          </div>
+        </div>
+        <p class="muted" style="margin-top:10px;font-size:0.85em;">⚠️ O Windows exibe <em>Título</em> (IPTC:ObjectName), <em>Marcas</em> (Keywords), <em>Autores</em> (By-line/Creator), <em>Direitos autorais</em> e <em>Tirada Em</em> (DateCreated). Demais campos XMP como <em>altText</em> e <em>gmbCaption</em> ficam visíveis apenas via ExifTool ou no arquivo _audit.json.</p>
+      </section>
+
+      <section class="card">
+        <h2>Configurações</h2>
+        <p class="muted">As chaves são salvas permanentemente no arquivo <code>.env</code> do servidor. Você também pode usar as variáveis de ambiente diretamente.</p>
+        <div class="row">
+          <label class="field">
+            <span>Provedor (IA)</span>
+            <select id="providerSelect">
+              <option value="gemini">Gemini (Flash 2.5)</option>
+              <option value="openai">OpenAI</option>
+            </select>
+          </label>
+          <button id="btnSaveProvider" class="btn">Aplicar</button>
+        </div>
+        <div class="row">
+          <label class="field grow">
+            <span>Chave Gemini</span>
+            <input id="geminiKeyInput" type="password" placeholder="Cole sua chave aqui" />
+          </label>
+          <button id="btnSaveGeminiKey" class="btn">Salvar Chave</button>
+        </div>
+        <div class="row">
+          <label class="field grow">
+            <span>Chave OpenAI</span>
+            <input id="openaiKeyInput" type="password" placeholder="Cole sua chave aqui" />
+          </label>
+          <button id="btnSaveOpenAIKey" class="btn">Salvar Chave</button>
+        </div>
+      </section>
+
+      <dialog id="clientDialog" class="dialog">
+        <form method="dialog" class="dialogBody">
+          <h3 id="clientDialogTitle">Cliente</h3>
+          <div class="grid2">
+            <label class="field">
+              <span>Nome do cliente</span>
+              <input id="clientName" required />
+            </label>
+            <label class="field">
+              <span>Categoria principal</span>
+              <input id="clientPrimaryCategory" placeholder="Ex.: Restaurante, Dentista, Oficina..." />
+            </label>
+            <label class="field">
+              <span>Nome do negócio</span>
+              <input id="clientBusinessName" placeholder="Se diferente do nome do cliente" />
+            </label>
+            <label class="field">
+              <span>Bairro</span>
+              <input id="clientNeighborhood" />
+            </label>
+            <label class="field">
+              <span>Cidade</span>
+              <input id="clientCity" />
+            </label>
+            <label class="field">
+              <span>Estado</span>
+              <input id="clientState" placeholder="UF" />
+            </label>
+          </div>
+
+          <label class="field">
+            <span>Endereço</span>
+            <input id="clientAddress" placeholder="Opcional" />
+          </label>
+
+          <div class="grid2">
+            <label class="field">
+              <span>Latitude (GPS)</span>
+              <input id="clientLat" type="number" step="any" />
+            </label>
+            <label class="field">
+              <span>Longitude (GPS)</span>
+              <input id="clientLon" type="number" step="any" />
+            </label>
+          </div>
+
+          <label class="field">
+            <span>Serviços (um por linha)</span>
+            <textarea id="clientServices" rows="4" placeholder="Ex.: instalação de ar-condicionado&#10;manutenção preventiva&#10;limpeza de split"></textarea>
+          </label>
+
+          <label class="field">
+            <span>Keywords (separadas por vírgula)</span>
+            <textarea id="clientKeywords" rows="2" placeholder="Ex.: ar-condicionado, instalação, manutenção, sua cidade"></textarea>
+          </label>
+
+          <label class="field">
+            <span>Não usar (separadas por vírgula)</span>
+            <textarea id="clientDoNotUse" rows="2" placeholder="Ex.: barato, milagre, 24h (se não for real)"></textarea>
+          </label>
+
+          <label class="field">
+            <span>Tom de voz</span>
+            <input id="clientTone" placeholder="Ex.: profissional e simples" />
+          </label>
+
+          <label class="field">
+            <span>Briefing (cole aqui)</span>
+            <textarea id="clientBriefing" rows="8"></textarea>
+          </label>
+
+          <div class="row">
+            <button id="btnExtractBriefing" type="button" class="btn">Extrair do briefing com IA</button>
+            <span id="extractStatus" class="muted"></span>
+          </div>
+
+          <div class="row end">
+            <button class="btn">Cancelar</button>
+            <button id="btnSaveClient" class="btn btnPrimary">Salvar</button>
+          </div>
+        </form>
+      </dialog>
+
+      <footer class="footer muted">
+        <small>Processa localmente. Use IA só quando você quiser.</small>
+      </footer>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
