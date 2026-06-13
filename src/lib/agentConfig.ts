@@ -1223,7 +1223,7 @@ export async function callRegularAgent(
   contextMessages: Message[],
   systemPrompt: string,
   apiKey: string,
-  maxTokens = 3000
+  maxTokens = 10000
 ): Promise<string> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 120_000); // 2-minute hard timeout
@@ -1288,7 +1288,7 @@ export async function callDecidorAgent(
           ...contextMessages,
           ...messages,
         ],
-        max_completion_tokens: 6000,
+        max_completion_tokens: 16000,
       }),
     });
     if (!res.ok) {
@@ -1369,7 +1369,7 @@ export async function callVisionAgent(
     body: JSON.stringify({ 
       model: "gpt-5-mini",
       messages: apiMessages,
-      max_completion_tokens: 4000 
+      max_completion_tokens: 10000 
     }),
   });
   if (!res.ok) {
