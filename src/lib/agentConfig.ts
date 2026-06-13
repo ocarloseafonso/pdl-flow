@@ -555,6 +555,46 @@ export function buildContextMessages(state: AllAgentState, currentAgentId: numbe
   ];
 }
 
+/**
+ * Builds a LEAN context for the Decisor de Estratégia (agent 12).
+ * Only injects Estrategista (agent 1) and Auditor (agent 11) outputs,
+ * truncated to avoid context overflow on the final consolidation call.
+ */
+export function buildDecidorContextMessages(state: AllAgentState): Message[] {
+  const MAX_CHARS = 5000; // ~1250 tokens per agent output
+  const parts: string[] = [];
+
+  const estrategistaOutput = state[1]?.output ?? "";
+  const auditorOutput = state[11]?.output ?? "";
+
+  if (estrategistaOutput) {
+    const truncated = estrategistaOutput.length > MAX_CHARS
+      ? estrategistaOutput.slice(0, MAX_CHARS) + "\n[...conteúdo truncado para otimização de tokens]"
+      : estrategistaOutput;
+    parts.push(`--- ✅ ESTRATÉGIA GERADA (Estrategista PDL) ---\n${truncated}`);
+  }
+
+  if (auditorOutput) {
+    const truncated = auditorOutput.length > MAX_CHARS
+      ? auditorOutput.slice(0, MAX_CHARS) + "\n[...conteúdo truncado para otimização de tokens]"
+      : auditorOutput;
+    parts.push(`--- ✅ PARECER DO AUDITOR ---\n${truncated}`);
+  }
+
+  if (parts.length === 0) return [];
+
+  const context =
+    "=== INPUTS PARA O DECISOR ===\n\n" +
+    parts.join("\n\n") +
+    "\n\n=== FIM DOS INPUTS ===\n" +
+    "Analise a estratégia e o parecer e gere a versão final consolidada.";
+
+  return [
+    { role: "user" as Role, content: "Analise os inputs abaixo e prepare sua decisão:" },
+    { role: "assistant" as Role, content: context },
+  ];
+}
+
 /* ═══════════════════════════════════════════════════
    SYSTEM PROMPTS
 ═══════════════════════════════════════════════════ */
@@ -1188,6 +1228,55 @@ export async function callRegularAgent(
   } catch (err) {
     if ((err as Error).name === "AbortError") {
       throw new Error("Tempo limite excedido (120s). A seção é muito longa — tente novamente.");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+/**
+ * Decisor de Estratégia (agent 12) — Dedicated call with:
+ * - Higher maxTokens (6000) since it generates the complete consolidated strategy
+ * - Extended timeout (180s) to handle large consolidation tasks
+ * - Uses lean buildDecidorContextMessages instead of full buildContextMessages
+ */
+export async function callDecidorAgent(
+  messages: Message[],
+  contextMessages: Message[],
+  systemPrompt: string,
+  apiKey: string
+): Promise<string> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 180_000); // 3-minute timeout for consolidation
+  try {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: "gpt-5-mini",
+        messages: [
+          { role: "system", content: systemPrompt },
+          ...contextMessages,
+          ...messages,
+        ],
+        max_completion_tokens: 6000,
+      }),
+    });
+    if (!res.ok) {
+      const e = await res.json();
+      throw new Error(e.error?.message ?? "Erro na API OpenAI (Decisor)");
+    }
+    const data = await res.json();
+    const content = data.choices[0]?.message?.content;
+    if (!content) {
+      throw new Error("Decisor retornou resposta vazia. Verifique os tokens disponíveis na sua conta OpenAI.");
+    }
+    return content as string;
+  } catch (err) {
+    if ((err as Error).name === "AbortError") {
+      throw new Error("Tempo limite excedido (180s) no Decisor. O contexto pode estar muito grande — tente reiniciar o agente.");
     }
     throw err;
   } finally {

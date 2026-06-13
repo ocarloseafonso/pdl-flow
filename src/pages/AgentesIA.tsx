@@ -6,6 +6,7 @@ import {
   makeInitialState, loadSession, saveSession, clearSession,
   buildClientContext, getSystemPrompt, getVisionSystemPrompt, buildContextMessages, getAgent1ConversationalPrompt,
   callRegularAgent, callSeniorAgent, callVisionAgent, callConversationalAgent,
+  callDecidorAgent, buildDecidorContextMessages,
   PARENT_AGENT, detectMissingInfo, parseStrategySections, STRATEGY_SECTIONS,
 } from "@/lib/agentConfig";
 import { Button } from "@/components/ui/button";
@@ -372,6 +373,10 @@ export default function AgentesIA() {
               return m;
             });
             reply = await callConversationalAgent(leanMsgs, convPrompt, key);
+          } else if (activeAgent === 12) {
+            // DECISOR: lean context (Estrategista + Auditor only) + extended timeout + more tokens
+            const decidorCtx = buildDecidorContextMessages(agentState);
+            reply = await callDecidorAgent(updatedMsgs, decidorCtx, systemPrompt, key);
           } else {
             reply = await callRegularAgent(updatedMsgs, contextMessages, systemPrompt, key);
           }
