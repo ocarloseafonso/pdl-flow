@@ -1249,7 +1249,7 @@ export async function callRegularAgent(
     const data = await res.json();
     const content = data.choices[0]?.message?.content;
     if (!content) {
-      throw new Error("Agente retornou resposta vazia. Verifique os tokens disponíveis na sua conta OpenAI.");
+      throw new Error(`Agente retornou resposta vazia. Detalhes: ${JSON.stringify(data.choices[0] || data)}`);
     }
     return content as string;
   } catch (err) {
@@ -1298,7 +1298,7 @@ export async function callDecidorAgent(
     const data = await res.json();
     const content = data.choices[0]?.message?.content;
     if (!content) {
-      throw new Error("Decisor retornou resposta vazia. Verifique os tokens disponíveis na sua conta OpenAI.");
+      throw new Error(`Decisor retornou resposta vazia. Detalhes: ${JSON.stringify(data.choices[0] || data)}`);
     }
     return content as string;
   } catch (err) {
