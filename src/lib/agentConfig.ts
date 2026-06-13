@@ -517,7 +517,8 @@ export const AGENT_LABELS: Record<number, string> = {
 
 function prevOutputs(state: AllAgentState): string {
   const parts: string[] = [];
-  PIPELINE.forEach((id) => {
+  const deliverableIds = [12, 2, 3, 4, 5, 6, 8];
+  deliverableIds.forEach((id) => {
     if (state[id]?.status === "done" && state[id]?.output) {
       parts.push(`\n\n--- OUTPUT APROVADO: ${AGENT_LABELS[id] ?? `Agente ${id}`} ---\n${state[id].output}`);
     }
@@ -531,9 +532,24 @@ function prevOutputs(state: AllAgentState): string {
  * so the model treats them as real conversation history rather than distant system text.
  */
 export function buildContextMessages(state: AllAgentState, currentAgentId: number): Message[] {
-  const doneIds = PIPELINE.filter(
+  // If current agent is 7 (Engineer of Prompt), don't inject context messages
+  // to avoid duplication with the system prompt which already has them.
+  if (currentAgentId === 7) return [];
+
+  let doneIds = PIPELINE.filter(
     (id) => id !== currentAgentId && state[id]?.status === "done" && state[id]?.output
   );
+
+  // If Decisor (Agent 12) is done, we don't need Estrategista (1) and Auditor (11)
+  const isDecisorDone = state[12]?.status === "done" && state[12]?.output;
+  if (isDecisorDone) {
+    doneIds = doneIds.filter((id) => id !== 1 && id !== 11);
+  }
+
+  // Exclude all Senior Revisors (102, 103, 104, 105, 106) for other agents
+  // as they are intermediate audit steps, not deliverables.
+  doneIds = doneIds.filter((id) => id !== 102 && id !== 103 && id !== 104 && id !== 105 && id !== 106);
+
   if (doneIds.length === 0) return [];
 
   let context = "=== HISTÓRICO COMPLETO DAS FASES ANTERIORES (APROVADAS PELO CLIENTE) ===\n\n";
@@ -542,8 +558,14 @@ export function buildContextMessages(state: AllAgentState, currentAgentId: numbe
   context += "2. Incorporar as melhorias sugeridas pelos revisores sêniors\n";
   context += "3. Dar continuidade direta ao projeto sem contradizer nada que já foi validado\n\n";
 
+  const MAX_OUTPUT_CHARS = 12000; // safety limit (~3000 tokens) per agent output
+
   doneIds.forEach((id) => {
-    context += `---\n✅ ${AGENT_LABELS[id] ?? `Agente ${id}`}:\n${state[id].output}\n\n`;
+    let output = state[id].output;
+    if (output.length > MAX_OUTPUT_CHARS) {
+      output = output.slice(0, MAX_OUTPUT_CHARS) + "\n[...conteúdo truncado para otimização de tokens...]";
+    }
+    context += `---\n✅ ${AGENT_LABELS[id] ?? `Agente ${id}`}:\n${output}\n\n`;
   });
 
   context += "=== FIM DO HISTÓRICO ===\n";
@@ -612,8 +634,9 @@ Você opera com base na metodologia PDL e no documento GMN (Google Meu Negócio)
 ${GMN_KNOWLEDGE}`;
 
 export function getSystemPrompt(agentId: number, clientCtx: string, state: AllAgentState): string {
-  const prev = prevOutputs(state);
-  const ctx = `${BASE_RULE}\n\n${clientCtx}${prev}`;
+  // Do not append prevOutputs to ctx for regular prompts, because approved context
+  // is already passed in contextMessages (chat history). This avoids token duplication.
+  const ctx = `${BASE_RULE}\n\n${clientCtx}`;
 
   const prompts: Record<number, string> = {
     1: `Você é um Estrategista de SEO Local especializado no Protocolo de Destaque Local (PDL). Sua única função é criar a estratégia digital completa para um cliente com base no briefing preenchido. ${ctx}
@@ -1224,7 +1247,11 @@ export async function callRegularAgent(
       throw new Error(e.error?.message ?? "Erro na API OpenAI");
     }
     const data = await res.json();
-    return data.choices[0].message.content as string;
+    const content = data.choices[0]?.message?.content;
+    if (!content) {
+      throw new Error("Agente retornou resposta vazia. Verifique os tokens disponíveis na sua conta OpenAI.");
+    }
+    return content as string;
   } catch (err) {
     if ((err as Error).name === "AbortError") {
       throw new Error("Tempo limite excedido (120s). A seção é muito longa — tente novamente.");
